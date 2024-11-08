@@ -968,5 +968,8 @@ namespace ATL.AudioData.IO
         {
             throw new NotImplementedException();
         }
+        
+        /// <inheritdoc />
+        public override string MapField(Field field) => "";
     }
 }

@@ -608,5 +608,19 @@ namespace ATL.AudioData.IO
             // It also has not to be marked for deletion
             return result && !picInfo.MarkedForDeletion;
         }
+        
+        /// <summary>
+        /// Maps TagData.Field to format specific string key (e.g. TALB)
+        /// </summary>
+        /// <param name="field"></param>
+        /// <returns></returns>
+        public abstract string MapField(Field field);
+
+        /// <summary>
+        /// Checks if a format specific string key is valid (by default all keys are accepted)
+        /// </summary>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        public virtual bool IsValidFieldKey(string key) =>  true;
     }
 }

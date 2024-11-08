@@ -527,5 +527,10 @@ namespace ATL.AudioData.IO
         {
             vorbisTag.Clear();
         }
+
+        /// <inheritdoc />
+        public string MapField(TagData.Field field) => VorbisTag.MapFrame(field);
+
+        public bool IsValidFieldKey(string key) => true;
     }
 }

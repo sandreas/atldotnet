@@ -70,5 +70,11 @@ namespace ATL.AudioData.IO
         {
             throw new NotImplementedException();
         }
+        
+        /// <inheritdoc/>
+        public string MapField(TagData.Field field) => "";
+
+        /// <inheritdoc/>
+        public bool IsValidFieldKey(string key) => false;
     }
 }

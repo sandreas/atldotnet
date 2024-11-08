@@ -639,5 +639,13 @@ namespace ATL.AudioData.IO
 
             return tag;
         }
+
+        public override string MapField(TagData.Field field) => MapFrame(field);
+        
+        // static method is required, because vorbis tag is used in flac and others
+        public static string MapFrame(TagData.Field field)
+        {
+            return frameMapping.FirstOrDefault(m => m.Value == field).Key;
+        }
     }
 }

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using static ATL.ChannelsArrangements;
 using static ATL.TagData;
@@ -402,5 +403,8 @@ namespace ATL.AudioData.IO
         {
             throw new NotImplementedException();
         }
+        
+        /// <inheritdoc />
+        public override string MapField(Field field) => frameMapping.FirstOrDefault(m => m.Value == field).Key;
     }
 }

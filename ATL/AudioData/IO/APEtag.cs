@@ -512,5 +512,8 @@ namespace ATL.AudioData.IO
             writer.Write((int)(finalFramePos - dataPos));
             writer.BaseStream.Seek(finalFramePos, SeekOrigin.Begin);
         }
+
+        /// <inheritdoc />
+        public override string MapField(Field field) => frameMapping.FirstOrDefault(m => m.Value == field).Key;
     }
 }

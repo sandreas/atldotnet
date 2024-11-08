@@ -665,5 +665,8 @@ namespace ATL.AudioData.IO
         {
             if (tagSize % 2 > 0) s.WriteByte(0);
         }
+        
+        /// <inheritdoc />
+        public override string MapField(Field field) => frameMapping.FirstOrDefault(m => m.Value == field).Key;
     }
 }

@@ -471,5 +471,9 @@ namespace ATL.AudioData.IO
         {
             await StreamUtils.ShortenStreamAsync(s, tocOffset + tocSize, (uint)(tocSize - newTocSize));
         }
+        /// <inheritdoc />
+        public override string MapField(Field field) => frameMapping.FirstOrDefault(m => m.Value == field).Key;
     }
+    
+
 }

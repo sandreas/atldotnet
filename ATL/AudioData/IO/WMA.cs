@@ -1117,5 +1117,8 @@ namespace ATL.AudioData.IO
                 else picInfo.TransientFlag = -1;
             }
         }
+        
+        /// <inheritdoc />
+        public override string MapField(Field field) => frameMapping.FirstOrDefault(m => m.Value == field).Key;
     }
 }

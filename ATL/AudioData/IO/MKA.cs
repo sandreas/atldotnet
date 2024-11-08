@@ -1331,5 +1331,8 @@ namespace ATL.AudioData.IO
 
             return result;
         }
+        
+        /// <inheritdoc />
+        public override string MapField(Field field) => frameMapping.FirstOrDefault(m => m.Value == field).Key;
     }
 }

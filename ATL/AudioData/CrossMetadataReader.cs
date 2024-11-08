@@ -759,5 +759,12 @@ namespace ATL.AudioData
         {
             throw new NotImplementedException();
         }
+
+        /// <inheritdoc />
+        public string MapField(TagData.Field field) => metaReaders.FirstOrDefault(m => m.MapField(field) != "")?.MapField(field) ?? "";
+        /// <inheritdoc/>
+        public bool IsValidFieldKey(string key) => false;
+        
+
     }
 }

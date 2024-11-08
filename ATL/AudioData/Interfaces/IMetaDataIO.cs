@@ -87,5 +87,20 @@ namespace ATL.AudioData
         /// Clear all metadata
         /// </summary>
         void Clear();
+
+
+        /// <summary>
+        /// Maps TagData.Field to format specific string key (e.g. TALB)
+        /// </summary>
+        /// <param name="field"></param>
+        /// <returns></returns>
+        string MapField(TagData.Field field);
+
+        /// <summary>
+        /// Checks if a format specific string key is valid (by default all keys are accepted)
+        /// </summary>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        bool IsValidFieldKey(string key);
     }
 }

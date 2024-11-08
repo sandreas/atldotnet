@@ -239,6 +239,9 @@ namespace ATL.AudioData.IO
 
             return 6;
         }
+        
+        /// <inheritdoc />
+        public override string MapField(Field field) => "";
     }
 
 }

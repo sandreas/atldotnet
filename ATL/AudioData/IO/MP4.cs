@@ -2692,6 +2692,9 @@ namespace ATL.AudioData.IO
                 (byte)((decPart & 0xFF00) >> 8), (byte)(decPart & 0x00FF)
             };
         }
+        
+        /// <inheritdoc />
+        public override string MapField(Field field) => frameMapping_mp4.FirstOrDefault(m => m.Value == field).Key;
 
         // reduce the useful MDAT to a few Kbs (for dev purposes only)
 
@@ -2719,4 +2722,6 @@ namespace ATL.AudioData.IO
                 */
     }
 #pragma warning restore S125 // Sections of code should not be commented out
+    
+    
 }

@@ -479,7 +479,7 @@ namespace ATL.AudioData.IO
         /// <inheritdoc/>
         protected override int getDefaultTagOffset()
         {
-            return TO_BOF; // Specs allow the ID3v2 tag to be located at the end of the audio (see §5 "Tag location" of specs)
+            return TO_BOF; // Specs allow the ID3v2 tag to be located at the end of the audio (see ï¿½5 "Tag location" of specs)
         }
 
         /// <inheritdoc/>
@@ -2434,5 +2434,42 @@ namespace ATL.AudioData.IO
             if (2 == tagVersion) return field.Equals("TCO", StringComparison.OrdinalIgnoreCase);
             else return field.Equals("TCON", StringComparison.OrdinalIgnoreCase);
         }
+
+        public virtual bool IsValidFieldKey(string key)
+        {
+            return true;
+        }
+        
+        public override string MapField(Field field) => m_tagVersion switch
+        {
+            // Field.ALBUM => m_tagVersion == TAG_VERSION_2_4
+            TAG_VERSION_2_2 => MapFieldFor22(field),
+            TAG_VERSION_2_4 => MapFieldFor24(field),
+            TAG_VERSION_2_3 => MapFieldFor23(field),
+            _ => string.Empty
+        };
+
+        /// <summary>
+        /// map field for id3v2.2
+        /// </summary>
+        /// <param name="field"></param>
+        /// <returns>string</returns>
+        public static string MapFieldFor22(Field field) => frameMapping_v22.FirstOrDefault(m => m.Value == field).Key;
+        
+        /// <summary>
+        /// map field for id3v2.3
+        /// </summary>
+        /// <param name="field"></param>
+        /// <returns>string</returns>
+        public static string MapFieldFor23(Field field) => frameMapping_v23.FirstOrDefault(m => m.Value == field).Key;
+        
+        
+        /// <summary>
+        /// map field for id3v2.4
+        /// </summary>
+        /// <param name="field"></param>
+        /// <returns></returns>
+        public static string MapFieldFor24(Field field) => frameMapping_v24.FirstOrDefault(m => m.Value == field).Key;
+        
     }
 }
