@@ -29,7 +29,7 @@ namespace ATL.AudioData.IO
 
             // Purpose
             byte[] data = new byte[4];
-            source.Read(data, 0, 4);
+            if (source.Read(data, 0, 4) < 4) return "";
             string typeId = Utils.Latin1Encoding.GetString(data, 0, 4);
 
             long maxPos = initialPos + chunkSize - 4; // 4 being the purpose 32bits tag that belongs to the chunk
@@ -47,15 +47,15 @@ namespace ATL.AudioData.IO
             while (source.Position < maxPos)
             {
                 // Key
-                source.Read(data, 0, 4);
+                if (source.Read(data, 0, 4) < 4) return;
                 var key = Utils.Latin1Encoding.GetString(data, 0, 4);
                 // Size
-                source.Read(data, 0, 4);
+                if (source.Read(data, 0, 4) < 4) return;
                 var size = StreamUtils.DecodeInt32(data);
                 // Do _NOT_ use StreamUtils.ReadNullTerminatedString because non-textual fields may be found here (e.g. NITR)
                 if (size > 0)
                 {
-                    source.Read(data, 0, size);
+                    if (source.Read(data, 0, size) < size) return;
                     // Manage parasite zeroes at the end of data
                     if (source.Position < maxPos && source.ReadByte() != 0) source.Seek(-1, SeekOrigin.Current);
                     var value = Encoding.UTF8.GetString(data, 0, size);
@@ -76,10 +76,10 @@ namespace ATL.AudioData.IO
             while (source.Position < maxPos)
             {
                 // Sub-chunk ID
-                source.Read(data, 0, 4);
+                if (source.Read(data, 0, 4) < 4) return;
                 id = Utils.Latin1Encoding.GetString(data, 0, 4);
                 // Size
-                source.Read(data, 0, 4);
+                if (source.Read(data, 0, 4) < 4) return;
                 size = StreamUtils.DecodeInt32(data);
                 if (size <= 0) continue;
 
@@ -98,7 +98,7 @@ namespace ATL.AudioData.IO
             byte[] data = new byte[Math.Max(4, size - 4)];
             WavHelper.ReadInt32(source, meta, "adtl.Labels[" + position + "].CuePointId", data, readTagParams.ReadAllMetaFrames);
 
-            source.Read(data, 0, size - 4);
+            if (source.Read(data, 0, size - 4) < size - 4) return;
             string value = Encoding.UTF8.GetString(data, 0, size - 4);
             value = Utils.StripEndingZeroChars(value); // Not ideal but effortslessly handles the ending zero
 
@@ -116,14 +116,14 @@ namespace ATL.AudioData.IO
             WavHelper.ReadInt16(source, meta, "adtl.Labels[" + position + "].Dialect", data, readTagParams.ReadAllMetaFrames);
             WavHelper.ReadInt16(source, meta, "adtl.Labels[" + position + "].CodePage", data, readTagParams.ReadAllMetaFrames);
 
-            source.Read(data, 0, size - 20);
+            if (source.Read(data, 0, size - 20) < size - 20) return;
             string value = Encoding.UTF8.GetString(data, 0, size - 20);
             value = Utils.StripEndingZeroChars(value); // Not ideal but effortslessly handles the ending zero
 
             meta.SetMetaField("adtl.Labels[" + position + "].Text", value, readTagParams.ReadAllMetaFrames);
         }
 
-        public static bool IsDataEligible(MetaDataIO meta)
+        public static bool IsDataEligible(MetaDataHolder meta)
         {
             if (meta.Title.Length > 0) return true;
             if (meta.Album.Length > 0) return true;
@@ -141,9 +141,9 @@ namespace ATL.AudioData.IO
             return WavHelper.IsDataEligible(meta, "info.") || WavHelper.IsDataEligible(meta, "adtl.");
         }
 
-        public static int ToStream(BinaryWriter w, bool isLittleEndian, string purpose, MetaDataIO meta)
+        public static int ToStream(BinaryWriter w, bool isLittleEndian, string purpose, MetaDataHolder tag, MetaDataIO metaIO)
         {
-            IDictionary<string, string> additionalFields = meta.AdditionalFields;
+            IDictionary<string, string> additionalFields = tag.AdditionalFields;
             w.Write(Utils.Latin1Encoding.GetBytes(CHUNK_LIST));
 
             long sizePos = w.BaseStream.Position;
@@ -151,7 +151,7 @@ namespace ATL.AudioData.IO
 
             w.Write(Utils.Latin1Encoding.GetBytes(purpose));
 
-            if (purpose.Equals(PURPOSE_INFO, StringComparison.OrdinalIgnoreCase)) writeInfoPurpose(w, meta);
+            if (purpose.Equals(PURPOSE_INFO, StringComparison.OrdinalIgnoreCase)) writeInfoPurpose(w, tag, metaIO);
             else if (purpose.Equals(PURPOSE_ADTL, StringComparison.OrdinalIgnoreCase)) writeDataListPurpose(w, isLittleEndian, additionalFields);
 
             long finalPos = w.BaseStream.Position;
@@ -168,7 +168,7 @@ namespace ATL.AudioData.IO
             return 14;
         }
 
-        private static void writeInfoPurpose(BinaryWriter w, MetaDataIO meta)
+        private static void writeInfoPurpose(BinaryWriter w, MetaDataHolder meta, MetaDataIO metaIO)
         {
             IDictionary<string, string> additionalFields = meta.AdditionalFields;
 
@@ -195,7 +195,7 @@ namespace ATL.AudioData.IO
             if (0 == value.Length && additionalFields.TryGetValue("info.ICOP", out var field2)) value = field2;
             if (value.Length > 0) writeSizeAndNullTerminatedString("ICOP", value, w, writtenFields);
             // Recording date
-            value = meta.EncodeDate(meta.Date);
+            value = metaIO.EncodeDate(meta.Date);
             if (0 == value.Length && additionalFields.TryGetValue("info.ICRD", out var additionalField2)) value = additionalField2;
             if (value.Length > 0) writeSizeAndNullTerminatedString("ICRD", value, w, writtenFields);
             // Genre
@@ -237,7 +237,7 @@ namespace ATL.AudioData.IO
             {
                 var shortKey = key.Substring(5, key.Length - 5).ToUpper();
                 if (!writtenFields.ContainsKey(key) && additionalFields[key].Length > 0)
-                    writeSizeAndNullTerminatedString(shortKey, meta.FormatBeforeWriting(additionalFields[key]), w, writtenFields);
+                    writeSizeAndNullTerminatedString(shortKey, metaIO.FormatBeforeWriting(additionalFields[key]), w, writtenFields);
             }
         }
 

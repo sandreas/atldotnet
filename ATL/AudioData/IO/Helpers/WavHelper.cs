@@ -20,7 +20,7 @@ namespace ATL.AudioData.IO
         /// <param name="meta">Metadata I/O to test with</param>
         /// <param name="prefix">Prefix to test with</param>
         /// <returns>True if the given Metadata I/O contains data relevant to the given prefix; false if it doesn't</returns>
-        public static bool IsDataEligible(MetaDataIO meta, string prefix)
+        public static bool IsDataEligible(MetaDataHolder meta, string prefix)
         {
             return meta.AdditionalFields.Keys.Any(key => key.StartsWith(prefix));
         }
@@ -54,7 +54,7 @@ namespace ATL.AudioData.IO
         /// <returns>Read value</returns>
         public static int ReadInt32(Stream source, MetaDataIO meta, string fieldName, byte[] buffer, bool readAllMetaFrames)
         {
-            source.Read(buffer, 0, 4);
+            if (source.Read(buffer, 0, 4) < 4) return 0;
             int value = StreamUtils.DecodeInt32(buffer);
             meta.SetMetaField(fieldName, value.ToString(), readAllMetaFrames);
             return value;
@@ -71,10 +71,47 @@ namespace ATL.AudioData.IO
         /// <returns>Read value</returns>
         public static void ReadInt16(Stream source, MetaDataIO meta, string fieldName, byte[] buffer, bool readAllMetaFrames)
         {
-            source.Read(buffer, 0, 2);
+            if (source.Read(buffer, 0, 2) < 2) return;
             int value = StreamUtils.DecodeInt16(buffer);
             meta.SetMetaField(fieldName, value.ToString(), readAllMetaFrames);
         }
+
+        public static void Latin1FromStream(
+            Stream source,
+            int size,
+            MetaDataIO meta,
+            string field,
+            byte[] buffer,
+            bool readAllFrames)
+        {
+            StringFromStream(source, size, Utils.Latin1Encoding, meta, field, buffer, readAllFrames);
+        }
+
+        public static void Utf8FromStream(
+            Stream source,
+            int size,
+            MetaDataIO meta,
+            string field,
+            byte[] buffer,
+            bool readAllFrames)
+        {
+            StringFromStream(source, size, Encoding.UTF8, meta, field, buffer, readAllFrames);
+        }
+
+        public static void StringFromStream(
+            Stream source,
+            int size,
+            Encoding encoding,
+            MetaDataIO meta,
+            string field,
+            byte[] buffer,
+            bool readAllFrames)
+        {
+            if (source.Read(buffer, 0, size) < size) return;
+            var str = Utils.StripEndingZeroChars(encoding.GetString(buffer, 0, size).Trim());
+            if (str.Length > 0) meta.SetMetaField(field, str, readAllFrames);
+        }
+
 
         /// <summary>
         /// Write a fixed-length text value from the given Map to the given writer

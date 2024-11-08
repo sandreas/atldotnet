@@ -33,7 +33,7 @@ namespace ATL.AudioData.IO
             WavHelper.ReadInt32(source, meta, "sample.SMPTEFormat", data, readTagParams.ReadAllMetaFrames);
 
             // SMPTE offsets
-            source.Read(data, 0, 4);
+            if (source.Read(data, 0, 4) < 4) return;
             meta.SetMetaField("sample.SMPTEOffset.Hours", ((sbyte)data[0]).ToString(), readTagParams.ReadAllMetaFrames);
             meta.SetMetaField("sample.SMPTEOffset.Minutes", data[1].ToString(), readTagParams.ReadAllMetaFrames);
             meta.SetMetaField("sample.SMPTEOffset.Seconds", data[2].ToString(), readTagParams.ReadAllMetaFrames);
@@ -67,12 +67,12 @@ namespace ATL.AudioData.IO
             }
         }
 
-        public static bool IsDataEligible(MetaDataIO meta)
+        public static bool IsDataEligible(MetaDataHolder meta)
         {
             return WavHelper.IsDataEligible(meta, "sample.");
         }
 
-        public static int ToStream(BinaryWriter w, bool isLittleEndian, MetaDataIO meta)
+        public static int ToStream(BinaryWriter w, bool isLittleEndian, MetaDataHolder meta)
         {
             IDictionary<string, string> additionalFields = meta.AdditionalFields;
             w.Write(Utils.Latin1Encoding.GetBytes(CHUNK_SAMPLE));
