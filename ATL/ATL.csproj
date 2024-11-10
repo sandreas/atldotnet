@@ -17,6 +17,7 @@
     <PackageReleaseNotes></PackageReleaseNotes>
     <Version>6.8.0</Version>
     <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
+    <LangVersion>10.0</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net30|AnyCPU'">
     <DebugType>full</DebugType>

@@ -414,6 +414,17 @@ namespace ATL
         /// <param name="onlyReadEmbeddedPictures">True to only read embedded pictures - used for pictures lazy loading (default : false)</param>
         protected void Update(bool onlyReadEmbeddedPictures = false)
         {
+            // AudioFileIO(stream_or_path, mimeType, false, true) => readAllMetadata
+            // IMetadata -> All metadata fields (Album, Artist, etc.)
+            // TagData -> contains all Fields
+            // IMetadataIO -> Read, Write (from AudioFileIO.Metadata
+            
+            // var t = Track.LoadFromFile() / LoadFromStream()
+            // t.Album = "test"
+            // t.DefaultContainer (MetadataContainer)
+            // t.
+
+            
             if (string.IsNullOrEmpty(Path)) return;
 
             // TODO when tag is not available, customize by naming options // tracks (...)
