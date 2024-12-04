@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using ATL.AudioData.IO;
 using System.IO;
 using static ATL.ChannelsArrangements;
@@ -55,7 +56,7 @@ namespace ATL.AudioData
         /// <summary>
         /// Format of the audio data
         /// </summary>
-        Format AudioFormat
+        AudioFormat AudioFormat
         {
             get;
         }
@@ -89,21 +90,28 @@ namespace ATL.AudioData
         }
 
         /// <summary>
-        /// Indicated whether the given metadata type is supported
+        /// Indicate which metadata types are supported by the present audio format, ordered by most recommended
         /// </summary>
-        /// <param name="metaDataType">Metadata type to be tested (see list in MetaDataIOFactory)</param>
-        /// <returns>True if current file supports the given metadata type; false if not</returns>
-        bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType);
-        
+        /// <returns>Metadata type supported by the present audio format</returns>
+        List<MetaDataIOFactory.TagType> GetSupportedMetas();
+
         /// <summary>
-        /// Reads audio data from the given stream.
+        /// True if the native tagging system contains a wide array of fields
+        /// </summary>
+        bool IsNativeMetadataRich
+        {
+            get;
+        }
+
+        /// <summary>
+        /// Read audio data from the given stream.
         /// NB1 : Standard metadata (i.e. ID3v2, ID3v1 and APE) have to be read _before_ calling this method, and their size stored in sizeInfo
         /// NB2 : Stream is _not_ closed after reading; resource deallocation has to be done by the caller
         /// </summary>
         /// <param name="source">Stream to read</param>
-        /// <param name="sizeInfo">Description of the size of the undelying stream and associated metadata</param>
+        /// <param name="sizeNfo">Description of the size of the undelying stream and associated metadata</param>
         /// <param name="readTagParams">Reading parameters and options</param>
         /// <returns>True if the stream has been successfuly read; false if not</returns>
-        bool Read(Stream source, AudioDataManager.SizeInfo sizeInfo, MetaDataIO.ReadTagParams readTagParams);
+        bool Read(Stream source, AudioDataManager.SizeInfo sizeNfo, MetaDataIO.ReadTagParams readTagParams);
     }
 }

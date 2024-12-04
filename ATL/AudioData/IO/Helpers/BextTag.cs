@@ -18,7 +18,6 @@ namespace ATL.AudioData.IO
         /// </summary>
         public const string CHUNK_BEXT = "bext";
 
-        private static readonly byte[] CR_LF = new byte[2] { 13, 10 };
 
         /// <summary>
         /// Read a bext chunk from the given source into the given Metadata I/O, using the given read parameters
@@ -28,46 +27,35 @@ namespace ATL.AudioData.IO
         /// <param name="readTagParams">Read parameters to use</param>
         public static void FromStream(Stream source, MetaDataIO meta, ReadTagParams readTagParams)
         {
-            string str;
             byte[] data = new byte[256];
 
             // Description
-            source.Read(data, 0, 256);
-            str = Utils.StripEndingZeroChars(Utils.Latin1Encoding.GetString(data).Trim());
-            if (str.Length > 0) meta.SetMetaField("bext.description", str, readTagParams.ReadAllMetaFrames);
+            WavHelper.Utf8FromStream(source, 256, meta, "bext.description", data, readTagParams.ReadAllMetaFrames);
 
             // Originator
-            source.Read(data, 0, 32);
-            str = Utils.StripEndingZeroChars(Utils.Latin1Encoding.GetString(data, 0, 32).Trim());
-            if (str.Length > 0) meta.SetMetaField("bext.originator", str, readTagParams.ReadAllMetaFrames);
+            WavHelper.Utf8FromStream(source, 32, meta, "bext.originator", data, readTagParams.ReadAllMetaFrames);
 
             // OriginatorReference
-            source.Read(data, 0, 32);
-            str = Utils.StripEndingZeroChars(Utils.Latin1Encoding.GetString(data, 0, 32).Trim());
-            if (str.Length > 0) meta.SetMetaField("bext.originatorReference", str, readTagParams.ReadAllMetaFrames);
+            WavHelper.Utf8FromStream(source, 32, meta, "bext.originatorReference", data, readTagParams.ReadAllMetaFrames);
 
             // OriginationDate
-            source.Read(data, 0, 10);
-            str = Utils.StripEndingZeroChars(Utils.Latin1Encoding.GetString(data, 0, 10).Trim());
-            if (str.Length > 0) meta.SetMetaField("bext.originationDate", str, readTagParams.ReadAllMetaFrames);
+            WavHelper.Utf8FromStream(source, 10, meta, "bext.originationDate", data, readTagParams.ReadAllMetaFrames);
 
             // OriginationTime
-            source.Read(data, 0, 8);
-            str = Utils.StripEndingZeroChars(Utils.Latin1Encoding.GetString(data, 0, 8).Trim());
-            if (str.Length > 0) meta.SetMetaField("bext.originationTime", str, readTagParams.ReadAllMetaFrames);
+            WavHelper.Utf8FromStream(source, 8, meta, "bext.originationTime", data, readTagParams.ReadAllMetaFrames);
 
             // TimeReference
-            source.Read(data, 0, 8);
+            if (source.Read(data, 0, 8) < 8) return;
             ulong timeReference = StreamUtils.DecodeUInt64(data);
             meta.SetMetaField("bext.timeReference", timeReference.ToString(), readTagParams.ReadAllMetaFrames);
 
             // BEXT version
-            source.Read(data, 0, 2);
+            if (source.Read(data, 0, 2) < 2) return;
             int intData = StreamUtils.DecodeUInt16(data);
             meta.SetMetaField("bext.version", intData.ToString(), readTagParams.ReadAllMetaFrames);
 
             // UMID
-            source.Read(data, 0, 64);
+            if (source.Read(data, 0, 64) < 64) return;
             int usefulLength = 32; // "basic" UMID
             if (data[12] > 19) usefulLength = 64; // data[12] gives the size of remaining UMID
             StringBuilder sbr = new StringBuilder();
@@ -76,46 +64,49 @@ namespace ATL.AudioData.IO
             meta.SetMetaField("bext.UMID", sbr.ToString(), readTagParams.ReadAllMetaFrames);
 
             // LoudnessValue
-            source.Read(data, 0, 2);
-            intData = StreamUtils.DecodeInt16(data);
-            meta.SetMetaField("bext.loudnessValue", (intData / 100.0).ToString(), readTagParams.ReadAllMetaFrames);
+            percent16FromStream(source, data, meta, "bext.loudnessValue", readTagParams.ReadAllMetaFrames);
 
             // LoudnessRange
-            source.Read(data, 0, 2);
-            intData = StreamUtils.DecodeInt16(data);
-            meta.SetMetaField("bext.loudnessRange", (intData / 100.0).ToString(), readTagParams.ReadAllMetaFrames);
+            percent16FromStream(source, data, meta, "bext.loudnessRange", readTagParams.ReadAllMetaFrames);
 
             // MaxTruePeakLevel
-            source.Read(data, 0, 2);
-            intData = StreamUtils.DecodeInt16(data);
-            meta.SetMetaField("bext.maxTruePeakLevel", (intData / 100.0).ToString(), readTagParams.ReadAllMetaFrames);
+            percent16FromStream(source, data, meta, "bext.maxTruePeakLevel", readTagParams.ReadAllMetaFrames);
 
             // MaxMomentaryLoudness
-            source.Read(data, 0, 2);
-            intData = StreamUtils.DecodeInt16(data);
-            meta.SetMetaField("bext.maxMomentaryLoudness", (intData / 100.0).ToString(), readTagParams.ReadAllMetaFrames);
+            percent16FromStream(source, data, meta, "bext.maxMomentaryLoudness", readTagParams.ReadAllMetaFrames);
 
             // MaxShortTermLoudness
-            source.Read(data, 0, 2);
-            intData = StreamUtils.DecodeInt16(data);
-            meta.SetMetaField("bext.maxShortTermLoudness", (intData / 100.0).ToString(), readTagParams.ReadAllMetaFrames);
+            percent16FromStream(source, data, meta, "bext.maxShortTermLoudness", readTagParams.ReadAllMetaFrames);
 
             // Reserved
             source.Seek(180, SeekOrigin.Current);
 
             // CodingHistory
             long initialPos = source.Position;
-            if (StreamUtils.FindSequence(source, CR_LF))
+            if (StreamUtils.FindSequence(source, Utils.CR_LF))
             {
                 long endPos = source.Position - 2;
                 source.Seek(initialPos, SeekOrigin.Begin);
 
-                if (data.Length < (int)(endPos - initialPos)) data = new byte[(int)(endPos - initialPos)];
-                source.Read(data, 0, (int)(endPos - initialPos));
+                int size = (int)(endPos - initialPos);
+                if (data.Length < size) data = new byte[size];
+                if (source.Read(data, 0, size) < size) return;
 
-                str = Utils.StripEndingZeroChars(Utils.Latin1Encoding.GetString(data, 0, (int)(endPos - initialPos)).Trim());
+                string str = Utils.StripEndingZeroChars(Utils.Latin1Encoding.GetString(data, 0, (int)(endPos - initialPos)).Trim());
                 if (str.Length > 0) meta.SetMetaField("bext.codingHistory", str, readTagParams.ReadAllMetaFrames);
             }
+        }
+
+        private static void percent16FromStream(
+            Stream source,
+            byte[] buffer,
+            MetaDataIO meta,
+            string field,
+            bool readAllFrames)
+        {
+            if (source.Read(buffer, 0, 2) < 2) return;
+            var intData = StreamUtils.DecodeInt16(buffer);
+            meta.SetMetaField(field, (intData / 100.0).ToString(), readAllFrames);
         }
 
         /// <summary>
@@ -123,7 +114,7 @@ namespace ATL.AudioData.IO
         /// </summary>
         /// <param name="meta">Metadata I/O to test with</param>
         /// <returns>True if the given Metadata I/O contains data relevant to the Bext format; false if it doesn't</returns>
-        public static bool IsDataEligible(MetaDataIO meta)
+        public static bool IsDataEligible(MetaDataHolder meta)
         {
             if (meta.GeneralDescription.Length > 0) return true;
 
@@ -137,7 +128,7 @@ namespace ATL.AudioData.IO
         /// <param name="isLittleEndian">Endianness to write the size headers with</param>
         /// <param name="meta">Metadata to write</param>
         /// <returns>The number of written fields</returns>
-        public static int ToStream(BinaryWriter w, bool isLittleEndian, MetaDataIO meta)
+        public static int ToStream(BinaryWriter w, bool isLittleEndian, MetaDataHolder meta)
         {
             IDictionary<string, string> additionalFields = meta.AdditionalFields;
             w.Write(Utils.Latin1Encoding.GetBytes(CHUNK_BEXT));
@@ -147,20 +138,20 @@ namespace ATL.AudioData.IO
 
             // Text values
             string description = Utils.ProtectValue(meta.GeneralDescription);
-            if (0 == description.Length && additionalFields.Keys.Contains("bext.description")) description = additionalFields["bext.description"];
+            if (0 == description.Length && additionalFields.TryGetValue("bext.description", out var field)) description = field;
 
-            WavHelper.writeFixedTextValue(description, 256, w);
-            WavHelper.writeFixedFieldTextValue("bext.originator", additionalFields, 32, w);
-            WavHelper.writeFixedFieldTextValue("bext.originatorReference", additionalFields, 32, w);
-            WavHelper.writeFixedFieldTextValue("bext.originationDate", additionalFields, 10, w);
-            WavHelper.writeFixedFieldTextValue("bext.originationTime", additionalFields, 8, w);
+            WavHelper.WriteFixedTextValue(description, 256, w);
+            WavHelper.WriteFixedFieldTextValue("bext.originator", additionalFields, 32, w);
+            WavHelper.WriteFixedFieldTextValue("bext.originatorReference", additionalFields, 32, w);
+            WavHelper.WriteFixedFieldTextValue("bext.originationDate", additionalFields, 10, w);
+            WavHelper.WriteFixedFieldTextValue("bext.originationTime", additionalFields, 8, w);
 
             // Int values
-            WavHelper.writeFieldIntValue("bext.timeReference", additionalFields, w, (ulong)0);
-            WavHelper.writeFieldIntValue("bext.version", additionalFields, w, (ushort)0);
+            WavHelper.WriteFieldIntValue("bext.timeReference", additionalFields, w, (ulong)0);
+            WavHelper.WriteFieldIntValue("bext.version", additionalFields, w, (ushort)0);
 
             // UMID
-            if (additionalFields.Keys.Contains("bext.UMID"))
+            if (additionalFields.ContainsKey("bext.UMID"))
             {
                 if (Utils.IsHex(additionalFields["bext.UMID"]))
                 {
@@ -185,26 +176,26 @@ namespace ATL.AudioData.IO
 
 
             // Float values
-            WavHelper.writeField100DecimalValue("bext.loudnessValue", additionalFields, w, (short)0);
-            WavHelper.writeField100DecimalValue("bext.loudnessRange", additionalFields, w, (short)0);
-            WavHelper.writeField100DecimalValue("bext.maxTruePeakLevel", additionalFields, w, (short)0);
-            WavHelper.writeField100DecimalValue("bext.maxMomentaryLoudness", additionalFields, w, (short)0);
-            WavHelper.writeField100DecimalValue("bext.maxShortTermLoudness", additionalFields, w, (short)0);
+            WavHelper.WriteField100DecimalValue("bext.loudnessValue", additionalFields, w, (short)0);
+            WavHelper.WriteField100DecimalValue("bext.loudnessRange", additionalFields, w, (short)0);
+            WavHelper.WriteField100DecimalValue("bext.maxTruePeakLevel", additionalFields, w, (short)0);
+            WavHelper.WriteField100DecimalValue("bext.maxMomentaryLoudness", additionalFields, w, (short)0);
+            WavHelper.WriteField100DecimalValue("bext.maxShortTermLoudness", additionalFields, w, (short)0);
 
             // Reserved
             for (int i = 0; i < 180; i++) w.Write((byte)0);
 
             // CodingHistory
-            byte[] textData = new byte[0];
-            if (additionalFields.Keys.Contains("bext.codingHistory"))
+            byte[] textData = Array.Empty<byte>();
+            if (additionalFields.TryGetValue("bext.codingHistory", out var additionalField))
             {
-                textData = Utils.Latin1Encoding.GetBytes(additionalFields["bext.codingHistory"]);
+                textData = Utils.Latin1Encoding.GetBytes(additionalField);
                 w.Write(textData);
             }
-            w.Write(new byte[2] { 13, 10 } /* CR LF */);
+            w.Write(Utils.CR_LF);
 
             // Emulation of the BWFMetaEdit padding behaviour (256 characters)
-            for (int i = 0; i < 256 - ((textData.Length + 2) % 256); i++) w.Write((byte)0);
+            for (int i = 0; i < 256 - (textData.Length + 2) % 256; i++) w.Write((byte)0);
 
             // Add the extra padding byte if needed
             long finalPos = w.BaseStream.Position;

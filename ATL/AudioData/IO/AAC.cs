@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using Commons;
 using static ATL.ChannelsArrangements;
@@ -58,59 +59,48 @@ namespace ATL.AudioData.IO
         private byte headerTypeID;
         private byte bitrateTypeID;
         private double bitrate;
-        private int sampleRate;
-        private ChannelsArrangement channelsArrangement;
 
         private AudioDataManager.SizeInfo sizeInfo;
-        private readonly string fileName;
 
 
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
 
         // IAudioDataIO
-        public bool IsVBR
-        {
-            get { return (AAC_BITRATE_TYPE_VBR == bitrateTypeID); }
-        }
-        public Format AudioFormat
+        /// <inheritdoc/>
+        public bool IsVBR => AAC_BITRATE_TYPE_VBR == bitrateTypeID;
+
+        /// <inheritdoc/>
+        public AudioFormat AudioFormat
         {
             get;
         }
-        public int CodecFamily
-        {
-            get { return AudioDataIOFactory.CF_LOSSY; }
-        }
-        public double BitRate
-        {
-            get { return bitrate / 1000.0; }
-        }
-        public double Duration
-        {
-            get { return getDuration(); }
-        }
-        public int SampleRate
-        {
-            get { return sampleRate; }
-        }
+        /// <inheritdoc/>
+        public int CodecFamily => AudioDataIOFactory.CF_LOSSY;
+        /// <inheritdoc/>
+        public double BitRate => bitrate / 1000.0;
+        /// <inheritdoc/>
+        public double Duration => getDuration();
+        /// <inheritdoc/>
+        public int SampleRate { get; private set; }
 
+        /// <inheritdoc/>
         public int BitDepth => -1; // Irrelevant for lossy formats
+        /// <inheritdoc/>
+        public string FileName { get; }
 
-        public string FileName
+        /// <inheritdoc/>
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
         {
-            get { return fileName; }
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.ID3V2, MetaDataIOFactory.TagType.APE, MetaDataIOFactory.TagType.NATIVE, MetaDataIOFactory.TagType.ID3V1 };
         }
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType)
-        {
-            return (metaDataType == MetaDataIOFactory.TagType.ID3V1)
-                || (metaDataType == MetaDataIOFactory.TagType.ID3V2)
-                || (metaDataType == MetaDataIOFactory.TagType.APE)
-                || (metaDataType == MetaDataIOFactory.TagType.NATIVE);
-        }
-        public ChannelsArrangement ChannelsArrangement
-        {
-            get { return channelsArrangement; }
-        }
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
+        /// <inheritdoc/>
+        public ChannelsArrangement ChannelsArrangement { get; private set; }
+
+        /// <inheritdoc/>
         public long AudioDataOffset { get; set; }
+        /// <inheritdoc/>
         public long AudioDataSize { get; set; }
 
 
@@ -122,14 +112,14 @@ namespace ATL.AudioData.IO
             bitrateTypeID = AAC_BITRATE_TYPE_UNKNOWN;
 
             bitrate = 0;
-            sampleRate = 0;
+            SampleRate = 0;
             AudioDataOffset = -1;
             AudioDataSize = 0;
         }
 
-        public AAC(string fileName, Format format)
+        public AAC(string fileName, AudioFormat format)
         {
-            this.fileName = fileName;
+            this.FileName = fileName;
             AudioFormat = format;
             resetData();
         }
@@ -139,10 +129,8 @@ namespace ATL.AudioData.IO
         // Calculate duration time
         private double getDuration()
         {
-            if (0 == bitrate)
-                return 0;
-            else
-                return 8.0 * (sizeInfo.FileSize - sizeInfo.TotalTagSize) * 1000 / bitrate;
+            if (Utils.ApproxEquals(bitrate, 0)) return 0;
+            return 8.0 * (sizeInfo.FileSize - sizeInfo.TotalTagSize) * 1000 / bitrate;
         }
 
         public static bool IsValidHeader(byte[] data)
@@ -158,11 +146,10 @@ namespace ATL.AudioData.IO
             {
                 return AAC_HEADER_TYPE_ADIF;
             }
-            else if ((0xFF == data[0]) && (0xF0 == ((data[1]) & 0xF0)))
-            {
-                return AAC_HEADER_TYPE_ADTS;
-            }
-            else return AAC_BITRATE_TYPE_UNKNOWN;
+
+            if (0xFF == data[0] && 0xF0 == (data[1] & 0xF0)) return AAC_HEADER_TYPE_ADTS;
+
+            return AAC_BITRATE_TYPE_UNKNOWN;
         }
 
         // Get header type of the file
@@ -171,7 +158,7 @@ namespace ATL.AudioData.IO
             byte[] header = new byte[4];
 
             source.Seek(sizeInfo.ID3v2Size, SeekOrigin.Begin);
-            source.Read(header, 0, header.Length);
+            if (source.Read(header, 0, header.Length) < header.Length) return AAC_HEADER_TYPE_UNKNOWN;
 
             byte result = recognizeHeaderType(header);
             if (result != AAC_BITRATE_TYPE_UNKNOWN)
@@ -185,9 +172,7 @@ namespace ATL.AudioData.IO
         // Read ADIF header data
         private void readADIF(Stream Source)
         {
-            int Position;
-
-            Position = (int)(sizeInfo.ID3v2Size * 8 + 32);
+            var Position = (int)(sizeInfo.ID3v2Size * 8 + 32);
             if (0 == StreamUtils.ReadBEBits(Source, Position, 1)) Position += 3;
             else Position += 75;
             if (0 == StreamUtils.ReadBEBits(Source, Position, 1)) bitrateTypeID = AAC_BITRATE_TYPE_CBR;
@@ -203,7 +188,7 @@ namespace ATL.AudioData.IO
             Position += 2;
 
             uint channels = 1;
-            sampleRate = SAMPLE_RATE[StreamUtils.ReadBEBits(Source, Position, 4)];
+            SampleRate = SAMPLE_RATE[StreamUtils.ReadBEBits(Source, Position, 4)];
             Position += 4;
             channels += StreamUtils.ReadBEBits(Source, Position, 4);
             Position += 4;
@@ -212,7 +197,7 @@ namespace ATL.AudioData.IO
             channels += StreamUtils.ReadBEBits(Source, Position, 4);
             Position += 4;
             channels += StreamUtils.ReadBEBits(Source, Position, 2);
-            channelsArrangement = ChannelsArrangements.GuessFromChannelNumber((int)channels);
+            ChannelsArrangement = GuessFromChannelNumber((int)channels);
         }
 
         // Read ADTS header data
@@ -220,22 +205,21 @@ namespace ATL.AudioData.IO
         {
             int frames = 0;
             int totalSize = 0;
-            int position;
 
             do
             {
                 frames++;
-                position = (int)(sizeInfo.ID3v2Size + totalSize) * 8;
+                var position = (int)(sizeInfo.ID3v2Size + totalSize) * 8;
 
                 if (StreamUtils.ReadBEBits(source, position, 12) != 0xFFF) break;
 
                 position += 18;
 
-                sampleRate = SAMPLE_RATE[StreamUtils.ReadBEBits(source, position, 4)];
+                SampleRate = SAMPLE_RATE[StreamUtils.ReadBEBits(source, position, 4)];
                 position += 5;
 
                 uint channels = StreamUtils.ReadBEBits(source, position, 3);
-                channelsArrangement = ChannelsArrangements.GuessFromChannelNumber((int)channels);
+                ChannelsArrangement = GuessFromChannelNumber((int)channels);
 
                 position += 7;
 
@@ -250,13 +234,14 @@ namespace ATL.AudioData.IO
                 if (AAC_BITRATE_TYPE_CBR == bitrateTypeID) break;
             }
             while (source.Length > sizeInfo.ID3v2Size + totalSize);
-            bitrate = (int)Math.Round(8 * totalSize / 1024.0 / frames * sampleRate);
+            bitrate = (int)Math.Round(8 * totalSize / 1024.0 / frames * SampleRate);
         }
 
         // Read data from file
-        public bool Read(Stream source, AudioDataManager.SizeInfo sizeInfo, MetaDataIO.ReadTagParams readTagParams)
+
+        public bool Read(Stream source, AudioDataManager.SizeInfo sizeNfo, MetaDataIO.ReadTagParams readTagParams)
         {
-            this.sizeInfo = sizeInfo;
+            this.sizeInfo = sizeNfo;
 
             return read(source, readTagParams);
         }

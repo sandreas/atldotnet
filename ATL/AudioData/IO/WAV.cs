@@ -3,9 +3,11 @@ using System.IO;
 using static ATL.AudioData.AudioDataManager;
 using Commons;
 using System.Collections.Generic;
+using System.Linq;
 using static ATL.ChannelsArrangements;
 using static ATL.TagData;
 using System.Text;
+using System.Buffers.Binary;
 
 namespace ATL.AudioData.IO
 {
@@ -49,23 +51,20 @@ namespace ATL.AudioData.IO
         // Broadcast Wave metadata sub-chunk
         private const string CHUNK_BEXT = BextTag.CHUNK_BEXT;
         private const string CHUNK_IXML = IXmlTag.CHUNK_IXML;
+        private const string CHUNK_XMP = XmpTag.CHUNK_XMP;
+        private const string CHUNK_CART = CartTag.CHUNK_CART;
         private const string CHUNK_ID3 = "id3 ";
 
 
         private ushort formatId;
-        private ChannelsArrangement channelsArrangement;
         private uint sampleRate;
         private uint bytesPerSecond;
         private ushort bitsPerSample;
         private long sampleNumber;
         private long headerSize;
 
-        private double bitrate;
-        private double duration;
-
         private SizeInfo sizeInfo;
-        private readonly string filePath;
-        private readonly Format audioFormat;
+        private readonly AudioFormat audioFormat;
 
         private bool _isLittleEndian;
 
@@ -74,29 +73,35 @@ namespace ATL.AudioData.IO
 
 
         // Mapping between WAV frame codes and ATL frame codes
-        private static IDictionary<string, Field> frameMapping = new Dictionary<string, Field>
+        private static readonly IDictionary<string, Field> frameMapping = new Dictionary<string, Field>
         {
             { "bext.description", Field.GENERAL_DESCRIPTION },
             { "info.INAM", Field.TITLE },
             { "info.TITL", Field.TITLE },
             { "info.IART", Field.ARTIST },
+            { "info.IPRD", Field.ALBUM },
             { "info.ICMT", Field.COMMENT },
             { "info.ICOP", Field.COPYRIGHT },
             { "info.ICRD", Field.RECORDING_DATE },
             { "info.IGNR", Field.GENRE },
             { "info.IRTD", Field.RATING },
-            { "info.TRCK", Field.TRACK_NUMBER }
+            { "info.TRCK", Field.TRACK_NUMBER },
+            { "info.IPRT", Field.TRACK_NUMBER },
+            { "info.ITRK", Field.TRACK_NUMBER },
+            { "info.ITCH", Field.ENCODED_BY },
+            { "info.ISFT", Field.ENCODER },
+            { "info.ILNG", Field.LANGUAGE}
         };
 
 
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
 
         // IAudioDataIO
-        public Format AudioFormat
+        public AudioFormat AudioFormat
         {
             get
             {
-                Format f = new Format(audioFormat);
+                AudioFormat f = new AudioFormat(audioFormat);
                 f.Name = f.Name + " (" + getFormat() + ")";
                 return f;
             }
@@ -104,15 +109,24 @@ namespace ATL.AudioData.IO
         public int SampleRate => (int)sampleRate;
         public bool IsVBR => false;
         public int CodecFamily => AudioDataIOFactory.CF_LOSSLESS;
-        public string FileName => filePath;
-        public double BitRate => bitrate;
+        public string FileName { get; }
+
+        public double BitRate { get; private set; }
+
         public int BitDepth => bitsPerSample;
-        public double Duration => duration;
-        public ChannelsArrangement ChannelsArrangement => channelsArrangement;
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType)
+        public double Duration { get; private set; }
+
+        public ChannelsArrangement ChannelsArrangement { get; private set; }
+
+        /// <inheritdoc/>
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
         {
-            return metaDataType == MetaDataIOFactory.TagType.ID3V1 || metaDataType == MetaDataIOFactory.TagType.ID3V2 || metaDataType == MetaDataIOFactory.TagType.NATIVE; // Native for bext, info and iXML chunks
+            // Native for bext, info and iXML chunks
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.NATIVE, MetaDataIOFactory.TagType.ID3V2, MetaDataIOFactory.TagType.ID3V1 };
         }
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
+
         public long AudioDataOffset { get; set; }
         public long AudioDataSize { get; set; }
 
@@ -133,15 +147,12 @@ namespace ATL.AudioData.IO
             Field supportedMetaId = Field.NO_FIELD;
 
             // Finds the ATL field identifier
-            if (frameMapping.ContainsKey(ID)) supportedMetaId = frameMapping[ID];
+            if (frameMapping.TryGetValue(ID, out var value)) supportedMetaId = value;
 
             return supportedMetaId;
         }
 
-        protected override bool isLittleEndian
-        {
-            get { return _isLittleEndian; }
-        }
+        protected override bool isLittleEndian => _isLittleEndian;
 
         public override string EncodeDate(DateTime date)
         {
@@ -150,26 +161,19 @@ namespace ATL.AudioData.IO
 
 
         // IMetaDataEmbedder
-        public long HasEmbeddedID3v2
-        {
-            get { return id3v2Offset; }
-        }
-        public uint ID3v2EmbeddingHeaderSize
-        {
-            get { return 8; }
-        }
-        public FileStructureHelper.Zone Id3v2Zone
-        {
-            get { return id3v2StructureHelper.GetZone(CHUNK_ID3); }
-        }
+        public long HasEmbeddedID3v2 => id3v2Offset;
+
+        public uint ID3v2EmbeddingHeaderSize => 8;
+
+        public FileStructureHelper.Zone Id3v2Zone => id3v2StructureHelper.GetZone(CHUNK_ID3);
 
 
         // ---------- CONSTRUCTORS & INITIALIZERS
 
         protected void resetData()
         {
-            duration = 0;
-            bitrate = 0;
+            Duration = 0;
+            BitRate = 0;
 
             formatId = 0;
             sampleRate = 0;
@@ -189,10 +193,10 @@ namespace ATL.AudioData.IO
             ResetData();
         }
 
-        public WAV(string filePath, Format format)
+        public WAV(string filePath, AudioFormat format)
         {
-            this.filePath = filePath;
-            this.audioFormat = format;
+            this.FileName = filePath;
+            audioFormat = format;
             resetData();
         }
 
@@ -206,27 +210,24 @@ namespace ATL.AudioData.IO
 
         private bool readWAV(Stream source, ReadTagParams readTagParams)
         {
-            bool result = true;
-
             bool isRf64 = false;
             long riffChunkSize;
             object formattedRiffChunkSize = 0;
-            long riffChunkSizePos;
             byte[] data = new byte[4];
             byte[] data64 = new byte[8];
 
             source.Seek(0, SeekOrigin.Begin);
 
             // Read header
-            source.Read(data, 0, 4);
+            if (source.Read(data, 0, 4) < 4) return false;
 
-            if (StreamUtils.ArrEqualsArr(data, HEADER_RF64)) isRf64 = true;
+            if (data.SequenceEqual(HEADER_RF64)) isRf64 = true;
 
-            if (StreamUtils.ArrEqualsArr(data, HEADER_RIFF) || isRf64)
+            if (data.SequenceEqual(HEADER_RIFF) || isRf64)
             {
                 _isLittleEndian = true;
             }
-            else if (StreamUtils.ArrEqualsArr(data, HEADER_RIFX))
+            else if (data.SequenceEqual(HEADER_RIFX))
             {
                 _isLittleEndian = false;
             }
@@ -239,21 +240,19 @@ namespace ATL.AudioData.IO
             structureHelper = new FileStructureHelper(isLittleEndian);
             id3v2StructureHelper = new FileStructureHelper(isLittleEndian);
 
-            riffChunkSizePos = source.Position;
-            source.Read(data, 0, 4);
+            var riffChunkSizePos = source.Position;
+            if (source.Read(data, 0, 4) < 4) return false;
             if (isLittleEndian) riffChunkSize = StreamUtils.DecodeUInt32(data); else riffChunkSize = StreamUtils.DecodeBEUInt32(data);
             if (riffChunkSize < uint.MaxValue) formattedRiffChunkSize = getFormattedRiffChunkSize(riffChunkSize, isRf64);
 
             // Format code
-            source.Read(data, 0, 4);
+            if (source.Read(data, 0, 4) < 4) return false;
             string str = Utils.Latin1Encoding.GetString(data);
             if (!str.Equals(FORMAT_WAVE)) return false;
 
 
             string subChunkId = "";
-            long chunkSize = 0;
             uint paddingSize = 0;
-            long chunkDataPos;
             bool foundSample = false;
             bool foundCue = false;
             bool foundList = false;
@@ -261,6 +260,8 @@ namespace ATL.AudioData.IO
             int dispIndex = 0;
             bool foundBext = false;
             bool foundIXml = false;
+            bool foundXmp = false;
+            bool foundCart = false;
 
             // Sub-chunks loop
             // NB1 : we're testing source.Position + 8 because the chunk header (chunk ID and size) takes up 8 bytes
@@ -270,7 +271,7 @@ namespace ATL.AudioData.IO
             {
                 if (paddingSize > 0)
                 {
-                    source.Read(data, 0, 1);
+                    if (source.Read(data, 0, 1) < 1) return false;
                     // Padding has been forgotten !
                     if (data[0] > 31 && data[0] < 255)
                     {
@@ -289,20 +290,20 @@ namespace ATL.AudioData.IO
                     }
                 }
                 // Chunk ID
-                source.Read(data, 0, 4);
+                if (source.Read(data, 0, 4) < 4) return false;
                 subChunkId = Utils.Latin1Encoding.GetString(data);
 
                 // Chunk size
-                source.Read(data, 0, 4);
-                chunkSize = isLittleEndian ? StreamUtils.DecodeUInt32(data) : StreamUtils.DecodeBEUInt32(data);
+                if (source.Read(data, 0, 4) < 4) return false;
+                long chunkSize = isLittleEndian ? StreamUtils.DecodeUInt32(data) : StreamUtils.DecodeBEUInt32(data);
                 // Word-align declared chunk size, as per specs
                 paddingSize = (uint)(chunkSize % 2);
 
-                chunkDataPos = source.Position;
+                var chunkDataPos = source.Position;
 
                 if (subChunkId.Equals(CHUNK_FORMAT64, StringComparison.OrdinalIgnoreCase)) // DS64 always appears before FMT
                 {
-                    source.Read(data64, 0, 8); // riffSize
+                    if (source.Read(data64, 0, 8) < 8) return false; // riffSize
                     if (uint.MaxValue == riffChunkSize)
                     {
                         riffChunkSize = StreamUtils.DecodeInt64(data64);
@@ -310,34 +311,34 @@ namespace ATL.AudioData.IO
                         formattedRiffChunkSize = getFormattedRiffChunkSize(riffChunkSize, isRf64);
                     }
 
-                    source.Read(data64, 0, 8); // dataSize
+                    if (source.Read(data64, 0, 8) < 8) return false; // dataSize
                     AudioDataSize = StreamUtils.DecodeInt64(data64);
 
-                    source.Read(data64, 0, 8); // sampleCount
+                    if (source.Read(data64, 0, 8) < 8) return false; // sampleCount
                     sampleNumber = StreamUtils.DecodeInt64(data64);
 
-                    source.Read(data, 0, 4); // wave table length
+                    if (source.Read(data, 0, 4) < 4) return false; // wave table length
                     uint tableLength = StreamUtils.DecodeUInt32(data);
                     source.Seek(tableLength, SeekOrigin.Current); // wave table
                 }
                 else if (subChunkId.Equals(CHUNK_FORMAT, StringComparison.OrdinalIgnoreCase))
                 {
-                    source.Read(data, 0, 2);
+                    if (source.Read(data, 0, 2) < 2) return false;
                     if (isLittleEndian) formatId = StreamUtils.DecodeUInt16(data); else formatId = StreamUtils.DecodeBEUInt16(data);
 
-                    source.Read(data, 0, 2);
-                    if (isLittleEndian) channelsArrangement = GuessFromChannelNumber(StreamUtils.DecodeUInt16(data));
-                    else channelsArrangement = GuessFromChannelNumber(StreamUtils.DecodeBEUInt16(data));
+                    if (source.Read(data, 0, 2) < 2) return false;
+                    if (isLittleEndian) ChannelsArrangement = GuessFromChannelNumber(StreamUtils.DecodeUInt16(data));
+                    else ChannelsArrangement = GuessFromChannelNumber(StreamUtils.DecodeBEUInt16(data));
 
-                    source.Read(data, 0, 4);
+                    if (source.Read(data, 0, 4) < 4) return false;
                     if (isLittleEndian) sampleRate = StreamUtils.DecodeUInt32(data); else sampleRate = StreamUtils.DecodeBEUInt32(data);
 
-                    source.Read(data, 0, 4);
+                    if (source.Read(data, 0, 4) < 4) return false;
                     if (isLittleEndian) bytesPerSecond = StreamUtils.DecodeUInt32(data); else bytesPerSecond = StreamUtils.DecodeBEUInt32(data);
 
                     source.Seek(2, SeekOrigin.Current); // BlockAlign
 
-                    source.Read(data, 0, 2);
+                    if (source.Read(data, 0, 2) < 2) return false;
                     if (isLittleEndian) bitsPerSample = StreamUtils.DecodeUInt16(data); else bitsPerSample = StreamUtils.DecodeBEUInt16(data);
                 }
                 else if (subChunkId.Equals(CHUNK_DATA, StringComparison.OrdinalIgnoreCase))
@@ -351,7 +352,7 @@ namespace ATL.AudioData.IO
                 }
                 else if (subChunkId.Equals(CHUNK_FACT, StringComparison.OrdinalIgnoreCase))
                 {
-                    source.Read(data, 0, 4);
+                    if (source.Read(data, 0, 4) < 4) return false;
                     uint inputSampleNumber;
                     if (isLittleEndian) inputSampleNumber = StreamUtils.DecodeUInt32(data); else inputSampleNumber = StreamUtils.DecodeBEUInt32(data);
                     if (inputSampleNumber < uint.MaxValue) sampleNumber = inputSampleNumber;
@@ -362,7 +363,6 @@ namespace ATL.AudioData.IO
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, subChunkId);
 
                     foundSample = true;
-                    tagExists = true;
 
                     SampleTag.FromStream(source, this, readTagParams);
                 }
@@ -372,7 +372,6 @@ namespace ATL.AudioData.IO
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, subChunkId);
 
                     foundCue = true;
-                    tagExists = true;
 
                     CueTag.FromStream(source, this, readTagParams);
                 }
@@ -381,7 +380,6 @@ namespace ATL.AudioData.IO
                     long initialPosition = source.Position - 8;
 
                     foundList = true;
-                    tagExists = true;
 
                     string purpose = List.FromStream(source, this, readTagParams, chunkSize);
 
@@ -395,7 +393,6 @@ namespace ATL.AudioData.IO
                     dispIndex++;
 
                     foundDisp = true;
-                    tagExists = true;
 
                     DispTag.FromStream(source, this, readTagParams, chunkSize);
                 }
@@ -405,7 +402,6 @@ namespace ATL.AudioData.IO
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, subChunkId);
 
                     foundBext = true;
-                    tagExists = true;
 
                     BextTag.FromStream(source, this, readTagParams);
                 }
@@ -415,9 +411,26 @@ namespace ATL.AudioData.IO
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, subChunkId);
 
                     foundIXml = true;
-                    tagExists = true;
 
                     IXmlTag.FromStream(source, this, readTagParams, chunkSize);
+                }
+                else if (subChunkId.Equals(CHUNK_XMP, StringComparison.OrdinalIgnoreCase))
+                {
+                    structureHelper.AddZone(source.Position - 8, (int)(chunkSize + paddingSize + 8), subChunkId);
+                    structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, subChunkId);
+
+                    foundXmp = true;
+
+                    XmpTag.FromStream(source, this, readTagParams, chunkSize);
+                }
+                else if (subChunkId.Equals(CHUNK_CART, StringComparison.OrdinalIgnoreCase))
+                {
+                    structureHelper.AddZone(source.Position - 8, (int)(chunkSize + paddingSize + 8), subChunkId);
+                    structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, subChunkId);
+
+                    foundCart = true;
+
+                    CartTag.FromStream(source, this, readTagParams, chunkSize);
                 }
                 else if (subChunkId.Equals(CHUNK_ID3, StringComparison.OrdinalIgnoreCase))
                 {
@@ -432,40 +445,51 @@ namespace ATL.AudioData.IO
             }
 
             // Add zone placeholders for future tag writing
+            long eof = source.Length;
             if (readTagParams.PrepareForWriting)
             {
                 if (!foundSample)
                 {
-                    structureHelper.AddZone(source.Position, 0, CHUNK_SAMPLE);
+                    structureHelper.AddZone(eof, 0, CHUNK_SAMPLE);
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_SAMPLE);
                 }
                 if (!foundCue)
                 {
-                    structureHelper.AddZone(source.Position, 0, CHUNK_CUE);
+                    structureHelper.AddZone(eof, 0, CHUNK_CUE);
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_CUE);
                 }
                 if (!foundList)
                 {
-                    structureHelper.AddZone(source.Position, 0, CHUNK_LIST + "." + List.PURPOSE_INFO);
+                    structureHelper.AddZone(eof, 0, CHUNK_LIST + "." + List.PURPOSE_INFO);
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_LIST + "." + List.PURPOSE_INFO);
 
-                    structureHelper.AddZone(source.Position, 0, CHUNK_LIST + "." + List.PURPOSE_ADTL);
+                    structureHelper.AddZone(eof, 0, CHUNK_LIST + "." + List.PURPOSE_ADTL);
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_LIST + "." + List.PURPOSE_ADTL);
                 }
                 if (!foundDisp)
                 {
-                    structureHelper.AddZone(source.Position, 0, CHUNK_DISP + ".0");
+                    structureHelper.AddZone(eof, 0, CHUNK_DISP + ".0");
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_DISP + ".0");
                 }
                 if (!foundBext)
                 {
-                    structureHelper.AddZone(source.Position, 0, CHUNK_BEXT);
+                    structureHelper.AddZone(eof, 0, CHUNK_BEXT);
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_BEXT);
                 }
                 if (!foundIXml)
                 {
-                    structureHelper.AddZone(source.Position, 0, CHUNK_IXML);
+                    structureHelper.AddZone(eof, 0, CHUNK_IXML);
                     structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_IXML);
+                }
+                if (!foundXmp)
+                {
+                    structureHelper.AddZone(eof, 0, CHUNK_XMP);
+                    structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_XMP);
+                }
+                if (!foundCart)
+                {
+                    structureHelper.AddZone(eof, 0, CHUNK_CART);
+                    structureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_CART);
                 }
             }
 
@@ -476,33 +500,33 @@ namespace ATL.AudioData.IO
 
                 if (readTagParams.PrepareForWriting)
                 {
-                    id3v2StructureHelper.AddZone(source.Position, 0, CHUNK_ID3);
+                    id3v2StructureHelper.AddZone(eof, 0, CHUNK_ID3);
                     id3v2StructureHelper.AddSize(riffChunkSizePos, formattedRiffChunkSize, CHUNK_ID3);
                 }
             }
 
-            return result;
+            return true;
         }
 
-        private object getFormattedRiffChunkSize(long input, bool isRf64)
+        private static object getFormattedRiffChunkSize(long input, bool isRf64)
         {
             if (isRf64) return input;
-            else return (uint)input;
+            return (uint)input;
         }
 
         private string getFormat()
         {
             // Get format type name
-            switch (formatId)
+            return formatId switch
             {
-                case 1: return WAV_FORMAT_PCM;
-                case 2: return WAV_FORMAT_ADPCM;
-                case 6: return WAV_FORMAT_ALAW;
-                case 7: return WAV_FORMAT_MULAW;
-                case 17: return WAV_FORMAT_DVI_IMA_ADPCM;
-                case 85: return WAV_FORMAT_MP3;
-                default: return "Unknown";
-            }
+                1 => WAV_FORMAT_PCM,
+                2 => WAV_FORMAT_ADPCM,
+                6 => WAV_FORMAT_ALAW,
+                7 => WAV_FORMAT_MULAW,
+                17 => WAV_FORMAT_DVI_IMA_ADPCM,
+                85 => WAV_FORMAT_MP3,
+                _ => "Unknown"
+            };
         }
 
         private double getDuration()
@@ -510,9 +534,9 @@ namespace ATL.AudioData.IO
             // Get duration
             double result = 0;
 
-            if ((sampleNumber == 0) && (bytesPerSecond > 0))
+            if (sampleNumber == 0 && bytesPerSecond > 0)
                 result = (double)(sizeInfo.FileSize - headerSize - sizeInfo.ID3v1Size) / bytesPerSecond;
-            if ((sampleNumber > 0) && (sampleRate > 0))
+            if (sampleNumber > 0 && sampleRate > 0)
                 result = sampleNumber * 1.0 / sampleRate;
 
             return result * 1000.0;
@@ -520,12 +544,12 @@ namespace ATL.AudioData.IO
 
         private double getBitrate()
         {
-            return Math.Round(bitsPerSample / 1000.0 * sampleRate * channelsArrangement.NbChannels);
+            return Math.Round(bitsPerSample / 1000.0 * sampleRate * ChannelsArrangement.NbChannels);
         }
 
-        public bool Read(Stream source, SizeInfo sizeInfo, ReadTagParams readTagParams)
+        public bool Read(Stream source, SizeInfo sizeNfo, ReadTagParams readTagParams)
         {
-            this.sizeInfo = sizeInfo;
+            this.sizeInfo = sizeNfo;
 
             return read(source, readTagParams);
         }
@@ -534,51 +558,62 @@ namespace ATL.AudioData.IO
         {
             resetData();
 
-            bool result = readWAV(source, readTagParams);
+            if (!readWAV(source, readTagParams)) return false;
 
             // Process data if loaded and header valid
-            if (result)
-            {
-                bitrate = getBitrate();
-                duration = getDuration();
-            }
-            return result;
+            BitRate = getBitrate();
+            Duration = getDuration();
+
+            return true;
         }
 
         protected override int write(TagData tag, Stream s, string zone)
         {
-            using (BinaryWriter w = new BinaryWriter(s, Encoding.UTF8, true)) return write(w, zone);
+            using BinaryWriter w = new BinaryWriter(s, Encoding.UTF8, true);
+            return write(w, new TagHolder(tag), zone);
         }
 
-        private int write(BinaryWriter w, string zone)
+        private int write(BinaryWriter w, MetaDataHolder tag, string zone)
         {
             int result = 0;
 
-            if (zone.Equals(CHUNK_SAMPLE) && SampleTag.IsDataEligible(this)) result += SampleTag.ToStream(w, isLittleEndian, this);
-            else if (zone.Equals(CHUNK_CUE) && CueTag.IsDataEligible(this)) result += CueTag.ToStream(w, isLittleEndian, this);
-            else if (zone.StartsWith(CHUNK_LIST) && List.IsDataEligible(this))
+            switch (zone)
             {
-                string[] zoneParts = zone.Split('.');
-                if (zoneParts.Length > 1) result += List.ToStream(w, isLittleEndian, zoneParts[1], this);
+                case CHUNK_SAMPLE when SampleTag.IsDataEligible(tag):
+                    result += SampleTag.ToStream(w, isLittleEndian, tag);
+                    break;
+                case CHUNK_CUE when CueTag.IsDataEligible(tag):
+                    result += CueTag.ToStream(w, isLittleEndian, tag);
+                    break;
+                default:
+                    {
+                        if (zone.StartsWith(CHUNK_LIST) && List.IsDataEligible(tag))
+                        {
+                            string[] zoneParts = zone.Split('.');
+                            if (zoneParts.Length > 1) result += List.ToStream(w, isLittleEndian, zoneParts[1], tag, this);
+                        }
+                        else if (zone.Equals(CHUNK_DISP + ".0") && DispTag.IsDataEligible(tag)) result += DispTag.ToStream(w, isLittleEndian, tag); // Process the 1st position as a whole
+                        else if (zone.Equals(CHUNK_BEXT) && BextTag.IsDataEligible(tag)) result += BextTag.ToStream(w, isLittleEndian, tag);
+                        else if (zone.Equals(CHUNK_IXML) && IXmlTag.IsDataEligible(tag)) result += IXmlTag.ToStream(w, isLittleEndian, tag);
+                        else if (zone.Equals(CHUNK_XMP) && XmpTag.IsDataEligible(tag)) result += XmpTag.ToStream(w, tag, isLittleEndian, true);
+                        else if (zone.Equals(CHUNK_CART) && CartTag.IsDataEligible(tag)) result += CartTag.ToStream(w, isLittleEndian, tag);
+
+                        break;
+                    }
             }
-            else if (zone.Equals(CHUNK_DISP + ".0") && DispTag.IsDataEligible(this)) result += DispTag.ToStream(w, isLittleEndian, this); // Process the 1st position as a whole
-            else if (zone.Equals(CHUNK_BEXT) && BextTag.IsDataEligible(this)) result += BextTag.ToStream(w, isLittleEndian, this);
-            else if (zone.Equals(CHUNK_IXML) && IXmlTag.IsDataEligible(this)) result += IXmlTag.ToStream(w, isLittleEndian, this);
 
             return result;
         }
 
         public void WriteID3v2EmbeddingHeader(Stream s, long tagSize)
         {
-            StreamUtils.WriteBytes(s, Utils.Latin1Encoding.GetBytes(CHUNK_ID3));
-            if (isLittleEndian)
-            {
-                StreamUtils.WriteInt32(s, (int)tagSize);
-            }
-            else
-            {
-                StreamUtils.WriteBytes(s, StreamUtils.EncodeBEInt32((int)tagSize));
-            }
+            var span = new Span<byte>(new byte[4]);
+
+            Utils.Latin1Encoding.GetBytes(CHUNK_ID3.AsSpan(), span);
+            s.Write(span);
+            if (isLittleEndian) BinaryPrimitives.WriteInt32LittleEndian(span, (int)tagSize);
+            else BinaryPrimitives.WriteInt32BigEndian(span, (int)tagSize);
+            s.Write(span);
         }
 
         public void WriteID3v2EmbeddingFooter(Stream s, long tagSize)

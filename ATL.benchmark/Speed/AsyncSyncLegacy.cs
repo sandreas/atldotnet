@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System;
 using System.Threading.Tasks;
 using System.Collections;
+using ATL.AudioData;
 
 namespace ATL.benchmark
 {

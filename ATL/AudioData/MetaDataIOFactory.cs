@@ -6,7 +6,7 @@ namespace ATL.AudioData
     /// <summary>
     /// Factory for metadata (tag) I/O classes
     /// </summary>
-    public class MetaDataIOFactory : Factory
+    public class MetaDataIOFactory : Factory<Format>
     {
         /// <summary>
         /// Metadata type
@@ -30,16 +30,14 @@ namespace ATL.AudioData
             /// </summary>
             NATIVE = 3,
             /// <summary>
+            /// Recommended tag type (according to an audio format)
+            /// </summary>
+            RECOMMENDED = 98,
+            /// <summary>
             /// Whenever tag type is not known in advance and may apply to any available tag
             /// </summary>
             ANY = 99
         }
-
-        /// <summary>
-        /// Count of the types defined above, excluding "any" type
-        /// </summary>
-        public static readonly int TAG_TYPE_COUNT = Enum.GetNames(typeof(TagType)).Length - 1;
-
 
         // The instance of this factory
         private static MetaDataIOFactory theFactory = null;
@@ -76,7 +74,7 @@ namespace ATL.AudioData
                 if (null == theFactory)
                 {
                     theFactory = new MetaDataIOFactory();
-                    theFactory.TagPriority = new TagType[TAG_TYPE_COUNT];
+                    theFactory.TagPriority = new TagType[4];
                     theFactory.TagPriority[0] = TagType.ID3V2;
                     theFactory.TagPriority[1] = TagType.APE;
                     theFactory.TagPriority[2] = TagType.NATIVE;
@@ -85,19 +83,19 @@ namespace ATL.AudioData
                     theFactory.formatListByExt = new Dictionary<string, IList<Format>>();
                     theFactory.formatListByMime = new Dictionary<string, IList<Format>>();
 
-                    Format tempFmt = new Format(((int)TagType.ID3V1) * 1000, "ID3v1");
+                    Format tempFmt = new Format((int)TagType.ID3V1, "ID3v1");
                     tempFmt.AddExtension("id3v1");
                     theFactory.addFormat(tempFmt);
 
-                    tempFmt = new Format(((int)TagType.ID3V2) * 1000, "ID3v2");
+                    tempFmt = new Format((int)TagType.ID3V2, "ID3v2");
                     tempFmt.AddExtension("id3v2");
                     theFactory.addFormat(tempFmt);
 
-                    tempFmt = new Format(((int)TagType.APE) * 1000, "APEtag");
+                    tempFmt = new Format((int)TagType.APE, "APEtag");
                     tempFmt.AddExtension("ape");
                     theFactory.addFormat(tempFmt);
 
-                    tempFmt = new Format(((int)TagType.NATIVE) * 1000, "Native");
+                    tempFmt = new Format((int)TagType.NATIVE, "Native tagging", "Native");
                     tempFmt.AddExtension("native");
                     theFactory.addFormat(tempFmt);
                 }
@@ -114,8 +112,7 @@ namespace ATL.AudioData
         /// <param name="rank">Reading priority : range [0..TAG_TYPE_COUNT[</param>
         public void SetTagPriority(TagType type, int rank)
         {
-            if ((rank > -1) && (rank < TagPriority.Length))
-                TagPriority[rank] = type;
+            if (rank > -1 && rank < TagPriority.Length) TagPriority[rank] = type;
         }
 
         /// <summary>
@@ -134,27 +131,27 @@ namespace ATL.AudioData
             if (theDataManager.ID3v2.Exists) tagCount++;
             if (theDataManager.APEtag.Exists) tagCount++;
 
-            if (CrossReading && (tagCount > 1) && forceTagType.Equals(TagType.ANY))
+            if (CrossReading && tagCount > 1 && forceTagType.Equals(TagType.ANY))
             {
                 theMetaReader = new CrossMetadataReader(theDataManager, TagPriority);
             }
             else
             {
-                for (int i = 0; i < TAG_TYPE_COUNT; i++)
+                foreach (var prio in TagPriority)
                 {
-                    if (((TagType.NATIVE == TagPriority[i] && forceTagType.Equals(TagType.ANY)) || forceTagType.Equals(TagType.NATIVE)) && theDataManager.HasNativeMeta())
+                    if (((TagType.NATIVE == prio && forceTagType.Equals(TagType.ANY)) || forceTagType.Equals(TagType.NATIVE)) && theDataManager.HasNativeMeta())
                     {
                         theMetaReader = theDataManager.NativeTag; break;
                     }
-                    if (((TagType.ID3V1 == TagPriority[i] && forceTagType.Equals(TagType.ANY)) || forceTagType.Equals(TagType.ID3V1)) && theDataManager.ID3v1.Exists)
+                    if (((TagType.ID3V1 == prio && forceTagType.Equals(TagType.ANY)) || forceTagType.Equals(TagType.ID3V1)) && theDataManager.ID3v1.Exists)
                     {
                         theMetaReader = theDataManager.ID3v1; break;
                     }
-                    if (((TagType.ID3V2 == TagPriority[i] && forceTagType.Equals(TagType.ANY)) || forceTagType.Equals(TagType.ID3V2)) && theDataManager.ID3v2.Exists)
+                    if (((TagType.ID3V2 == prio && forceTagType.Equals(TagType.ANY)) || forceTagType.Equals(TagType.ID3V2)) && theDataManager.ID3v2.Exists)
                     {
                         theMetaReader = theDataManager.ID3v2; break;
                     }
-                    if (((TagType.APE == TagPriority[i] && forceTagType.Equals(TagType.ANY)) || forceTagType.Equals(TagType.APE)) && theDataManager.APEtag.Exists)
+                    if (((TagType.APE == prio && forceTagType.Equals(TagType.ANY)) || forceTagType.Equals(TagType.APE)) && theDataManager.APEtag.Exists)
                     {
                         theMetaReader = theDataManager.APEtag; break;
                     }

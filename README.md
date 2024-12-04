@@ -1,12 +1,12 @@
-# Audio Tools Library (ATL) for .NET ![NetCore](https://img.shields.io/badge/.NET%20Core-3.1-lightgrey.svg) ![NetStandard](https://img.shields.io/badge/.NET%20Standard-2.1-lightgrey.svg) ![Net Framework](https://img.shields.io/badge/.NET%20Framework-4.8-lightgrey.svg)
+# Audio Tools Library (ATL) for .NET ![NetStandard](https://img.shields.io/badge/.NET%20Standard-2.1-lightgrey.svg) ![.NET](https://img.shields.io/badge/.NET-6-lightgrey.svg)
 
 __Latest stable version__ : [![NuGet](https://img.shields.io/nuget/v/z440.atl.core.svg)](https://www.nuget.org/packages/z440.atl.core/)
 
-__Optimized with__ : [BenchmarkDotNet](https://github.com/dotnet/BenchmarkDotNet) and [CodeTrack](http://www.getcodetrack.com/)
+__Optimized with__ : [ReSharper](https://jb.gg/OpenSourceSupport), [BenchmarkDotNet](https://github.com/dotnet/BenchmarkDotNet) and [CodeTrack](http://www.getcodetrack.com/)
 
 ## Current status
 
-[![.NET](https://github.com/Zeugma440/atldotnet/actions/workflows/dotnet.yml/badge.svg?branch=main)](https://github.com/Zeugma440/atldotnet/actions/workflows/dotnet.yml) [![codecov](https://codecov.io/gh/Zeugma440/atldotnet/branch/main/graph/badge.svg)](https://codecov.io/gh/Zeugma440/atldotnet) [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Zeugma440_atldotnet&metric=alert_status)](https://sonarcloud.io/dashboard?id=Zeugma440_atldotnet)
+[![.NET](https://github.com/Zeugma440/atldotnet/actions/workflows/dotnet.yml/badge.svg?branch=main)](https://github.com/Zeugma440/atldotnet/actions/workflows/dotnet.yml) [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Zeugma440_atldotnet&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Zeugma440_atldotnet) [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Zeugma440_atldotnet&metric=alert_status)](https://sonarcloud.io/dashboard?id=Zeugma440_atldotnet)
 
 ## What is ATL .NET ?
 
@@ -65,7 +65,7 @@ As a fellow audiophile and developer, I'm proudly extending and improving their 
 
 * ATL supports __lyrics__ natively
 
-* ATL supports BEXT, LIST (general metadata, labels and notes), CUE (cue points), SMPL (sample loops), DISP (displayable objects) and iXML metadata chunks in RIFF / WAV files
+* ATL supports BEXT, LIST (general metadata, labels and notes), CUE (cue points), SMPL (sample loops), DISP (displayable objects), XMP, CART and iXML metadata chunks in RIFF / WAV files
 
 * ATL supports __Playlists and Cuesheets__
 
@@ -74,9 +74,9 @@ As a fellow audiophile and developer, I'm proudly extending and improving their 
 
 ## How to use it ?  Which platforms and .NET/Mono versions does ATL run on ?
 
-The ATL library runs on .NET Core 3.1+ / .NET Standard 2.1+ / .NET Framework 4.8+
+The ATL library runs on .NET Standard 2.1+ / .NET 6+
 
-ATL unit tests run on .NET Framework 4.8+
+ATL unit tests run on .NET 6+
 
 The library and its tests have been maintained on Visual Studio Express and Community (currently on Community 2022)
 
@@ -107,6 +107,7 @@ Extended Module | .XM |  |  |  | R/W (2)
 Free Lossless Audio Codec | .FLAC |  | R/W |  | R/W
 Genesis YM2612 | .GYM |  |  |  | R/W
 Impulse Tracker | .IT |  |  |  | R/W (2)
+Matroska Audio, WebM Audio | .MKA, .WEBM |  |  |  | R/W
 Musical Instruments Digital Interface | .MID, .MIDI |  |  |  | R/W (3)
 Monkey's Audio | .APE | R/W | R/W | R/W | 
 MPEG Audio Layer | .MP1, .MP2, .MP3 | R/W | R/W | R/W | |
@@ -132,18 +133,52 @@ Windows Media Audio/Advanced Systems Format|.WMA, .ASF| | | |R/W|
 
 (3) : MIDI meta events appear on the track's Comment field
 
-(4) : Support for BEXT, LIST (general metadata, labels and notes), CUE (cue points), SMPL (sample loops), DISP (displayable objects) and iXML metadata chunks
+(4) : Support for LIST (general metadata, labels and notes), CUE (cue points), SMPL (sample loops), DISP (displayable objects), BEXT, CART, XMP and iXML metadata chunks
 
 (5) : Reads audio properties only, due to the rarity of sample CAF files tagged with actual metadata
 
 
 ### DETECTED FIELDS
 
-* __Audio properties (from audio data)__ : Bitrate, Bit depth (bits per sample), Sample rate, Duration, VBR, Codec family, Channels count and arrangement
-* __Standard Metadata (from tags)__ : Title, Artist, Album Artist, Composer, Conductor, Description, Comment, Genre, Track number, Total tracks, Disc number, Total discs, Recording Year and Date, Album, Rating, Publisher, Publishing Date, Copyright, Original album, Original artist, Album sort order, Album artist sort order, Artist sort order, Title sort order, Content group description, Series title / Movement name, Series part / Movement index, Long description (also known as "Podcast description"), Embedded pictures, [Chapters](https://github.com/Zeugma440/atldotnet/wiki/Focus-on-Chapter-metadata), Unsynchronized and synchronized Lyrics
-* __Custom Metadata__ : any other field that might be in the tag is readable __and__ editable by ATL
+#### Audio properties (from audio data)
+
+Bitrate, Bit depth (bits per sample), Sample rate, Duration, VBR, Codec family, Channels count and arrangement
+
+#### Standard metadata (from tags)
+
+- **Titles** : Track title, Album title, Original album title, Content group description
+
+- **People & Organizations** : Track artist, Album artist, Original artist, Composer, Conductor, Lyricist, Publisher, Involved people, Series title / Movement name
+
+- **Count & Indexes** : Track number, Total tracks, Disc number, Total discs,  Album, Rating, Album sort order, Album artist sort order, Artist sort order, Title sort order, Series part / Movement index
+
+- **Dates** : Recording Year and Date, Original Release Year and Date, Publishing Date
+
+- **Identifiers** : ISRC, Catalog Number
+
+- **Ripping & Encoding** : Encoded By, Encoder
+
+- **URLs** : Audio Source URL
+
+- **Style** : Genre, Beats Per Minute (BPM)
+
+- **Miscellaneous** : Comment, Description, Long description (also known as "Podcast description"), Language, Copyright, Embedded pictures, [Chapters](https://github.com/Zeugma440/atldotnet/wiki/Focus-on-Chapter-metadata), Unsynchronized and synchronized Lyrics using the LRC or ID3v2 format
+
+
+#### Custom metadata
+
+Any other field that might be in the tag is readable __and__ editable by ATL. More information can be found on the [dedicated page](https://github.com/Zeugma440/atldotnet/wiki/Focus-on-non-standard-fields)
 
 NB : Most metadata will be read "as is", with minimal alteration. If your file has invalid tags (e.g. chapter start timecode located after file duration), ATL will give you back that information without trying to auto-correct it.
+
+
+#### Industry standards
+
+ATL supports the following industry standards :
+- Broadcast wave / BEXT (EBU – TECH 3285) for WAV files
+- Broadcast wave / CART (AES Standard AES46-2002) for WAV files
+- Broadcast wave / iXML for WAV files
+- XMP (ISO 16684–1) for MP4/M4A and WAV files
 
 
 ### SUPPORTED PLAYLISTS FORMATS
@@ -161,7 +196,7 @@ CUE
 
 ## What is the roadmap of ATL.NET ?
 
-* Support for Broadcast wave metadata : aXML and XMP
+* Support for Broadcast wave metadata : aXML
 * Support for other audio file formats : Speex
 * Connectors to __other library file formats__ (e.g. iTunes)
 

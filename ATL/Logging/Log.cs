@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
 
 namespace ATL.Logging
 {
@@ -65,7 +64,7 @@ namespace ATL.Logging
         // ASYNCHRONOUS LOGGING
 
         // Indicates if logging is immediate or asynchronous (default : immediate)
-        private bool asynchronous = false;
+        private bool asynchronous;
 
         // Queued LogItems waiting to be logged when asynchronous mode is on
         private readonly IList<LogItem> asyncQueue = new List<LogItem>();
@@ -83,14 +82,14 @@ namespace ATL.Logging
             locations = new Dictionary<int, string>();
 
             // Define default location
-            locations[Thread.CurrentThread.ManagedThreadId] = "";
+            locations[Environment.CurrentManagedThreadId] = "";
         }
 
         /// <summary>
         /// Log the provided message with the LV_DEBUG logging level
         /// </summary>
         /// <param name="msg">Contents of the message</param>
-        public void Debug(String msg)
+        public void Debug(string msg)
         {
             Write(LV_DEBUG, msg);
         }
@@ -99,7 +98,7 @@ namespace ATL.Logging
         /// Log the provided message with the LV_INFO logging level
         /// </summary>
         /// <param name="msg">Contents of the message</param>
-        public void Info(String msg)
+        public void Info(string msg)
         {
             Write(LV_INFO, msg);
         }
@@ -108,7 +107,7 @@ namespace ATL.Logging
         /// Log the provided message with the LV_WARNING logging level
         /// </summary>
         /// <param name="msg">Contents of the message</param>
-        public void Warning(String msg)
+        public void Warning(string msg)
         {
             Write(LV_WARNING, msg);
         }
@@ -117,7 +116,7 @@ namespace ATL.Logging
         /// Log the provided message with the LV_ERROR logging level
         /// </summary>
         /// <param name="msg">Contents of the message</param>
-        public void Error(String msg)
+        public void Error(string msg)
         {
             Write(LV_ERROR, msg);
         }
@@ -134,7 +133,7 @@ namespace ATL.Logging
         {
             lock (locations)
             {
-                locations[Thread.CurrentThread.ManagedThreadId] = location;
+                locations[Environment.CurrentManagedThreadId] = location;
             }
         }
 
@@ -144,7 +143,7 @@ namespace ATL.Logging
         /// </summary>
         /// <param name="level">Logging level of the new message</param>
         /// <param name="msg">Contents of the new message</param>
-        public void Write(int level, String msg)
+        public void Write(int level, string msg)
         {
             write(level, msg, false);
         }
@@ -152,12 +151,17 @@ namespace ATL.Logging
         private void write(int level, string msg, bool forceDisplay)
         {
             // Creation and filling of the new LogItem
-            LogItem theItem = new LogItem();
+            LogItem theItem = new LogItem
+            {
+                When = DateTime.Now,
+                Level = level,
+                Message = msg
+            };
 
-            theItem.When = DateTime.Now;
-            theItem.Level = level;
-            theItem.Message = msg;
-            if (locations.ContainsKey(Thread.CurrentThread.ManagedThreadId)) theItem.Location = locations[Thread.CurrentThread.ManagedThreadId]; else theItem.Location = "";
+            lock (locations)
+            {
+                theItem.Location = locations.TryGetValue(Environment.CurrentManagedThreadId, out var location) ? location : "";
+            }
 
             lock (masterLog)
             {

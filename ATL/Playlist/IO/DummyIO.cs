@@ -8,17 +8,7 @@ namespace ATL.Playlist.IO
     public class DummyIO : IPlaylistIO
     {
         /// <inheritdoc/>
-        public string Path
-        {
-            get
-            {
-                return "";
-            }
-            set
-            {
-                // Nothing here, it's a dummy method
-            }
-        }
+        public string Path => "";
 
         /// <inheritdoc/>
         public IList<string> FilePaths
@@ -38,6 +28,12 @@ namespace ATL.Playlist.IO
             {
                 // Nothing here, it's a dummy method
             }
+        }
+
+        /// <inheritdoc/>
+        public bool Save()
+        {
+            return true;
         }
 
         /// <inheritdoc/>

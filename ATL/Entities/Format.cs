@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -10,6 +9,11 @@ namespace ATL
     /// </summary>
     public class Format : IEnumerable
     {
+        /// <summary>
+        /// Represents an unknown generic format
+        /// </summary>
+        public static readonly Format UNKNOWN_FORMAT = new Format(0, "Unknown");
+
         /// <summary>
         /// Check if the given byte array matches the Format's signature (aka "magic number")
         /// NB : This operation has to be fast
@@ -41,13 +45,14 @@ namespace ATL
         /// <param name="id">Unique ID</param>
         /// <param name="name">Name</param>
         /// <param name="shortName">Short name</param>
-        public Format(int id, string name, string shortName = "")
+        /// <param name="writable">Indicate if ATL implements writing for this Format</param>
+        public Format(int id, string name, string shortName = "", bool writable = true)
         {
-            init(id, name, (0 == shortName.Length) ? name : shortName);
+            init(id, name, 0 == shortName.Length ? name : shortName, writable);
         }
 
         /// <summary>
-        /// Construct a format by copying data from the given Format object
+        /// Construct a Format by copying data from the given Format object
         /// </summary>
         /// <param name="f">Format to copy data from</param>
         public Format(Format f)
@@ -72,6 +77,7 @@ namespace ATL
             mimeList = new Dictionary<string, int>(f.mimeList);
             extList = new Dictionary<string, int>(f.extList);
             Readable = f.Readable;
+            Writable = f.Writable;
             CheckHeader = f.CheckHeader;
             SearchHeader = f.SearchHeader;
         }
@@ -82,12 +88,14 @@ namespace ATL
         /// <param name="id">Unique ID</param>
         /// <param name="name">Name</param>
         /// <param name="shortName">Short name</param>
-        protected void init(int id, string name, string shortName = "")
+        /// <param name="writable">Indicate if ATL implements writing for this Format</param>
+        protected void init(int id, string name, string shortName = "", bool writable = true)
         {
             ID = id;
             Name = name;
-            ShortName = (0 == shortName.Length) ? name : shortName;
+            ShortName = 0 == shortName.Length ? name : shortName;
             Readable = true;
+            Writable = writable;
             extList = new Dictionary<string, int>();
             mimeList = new Dictionary<string, int>();
         }
@@ -121,15 +129,17 @@ namespace ATL
         /// <summary>
         /// MIME types associated with the format
         /// </summary>
-        public ICollection<string> MimeList
-        {
-            get { return mimeList.Keys; }
-        }
+        public ICollection<string> MimeList => mimeList.Keys;
 
         /// <summary>
         /// True if the format is readable by ATL
         /// </summary>
         public bool Readable { get; set; }
+
+        /// <summary>
+        /// True if the format is writable by ATL
+        /// </summary>
+        public bool Writable { get; set; }
 
 
         #region Code for IEnumerable implementation

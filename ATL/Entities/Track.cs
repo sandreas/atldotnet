@@ -18,8 +18,6 @@ namespace ATL
     /// </summary>
     public class Track
     {
-        private const string InMemoryPath = "In-memory";
-
         /// <summary>
         /// Basic constructor; does nothing else than instanciating the Track object
         /// </summary>
@@ -47,16 +45,32 @@ namespace ATL
         {
             this.stream = stream;
             this.mimeType = mimeType;
-            Path = InMemoryPath;
+            Path = AudioDataIOFactory.IN_MEMORY;
             Update();
         }
 
-        //=== METADATA
+        //=== LOCATION
 
         /// <summary>
         /// Full path of the underlying file
         /// </summary>
-        public readonly string Path;
+        public string Path { get; private set; }
+
+        /// <summary>
+        /// Stream used to access in-memory Track contents (alternative to path, which is used to access on-disk Track contents)
+        /// </summary>
+        private Stream stream;
+        /// <summary>
+        /// MIME-type that describes in-memory Track contents (used in conjunction with stream)
+        /// </summary>
+        private string mimeType;
+
+
+        private AudioFileIO fileIO;
+
+
+        //=== METADATA
+
         /// <summary>
 		/// Title
 		/// </summary>
@@ -114,9 +128,30 @@ namespace ATL
         /// </summary>
         public string Conductor { get; set; }
         /// <summary>
+        /// Lyricist
+        /// </summary>
+        public string Lyricist { get; set; }
+        /// <summary>
+        /// Mapping between functions (e.g. "producer") and names. Every odd field is a
+        /// function and every even is an name or a comma delimited list of names
+        /// </summary>
+        public string InvolvedPeople { get; set; }
+        /// <summary>
         /// Product ID
         /// </summary>
         public string ProductId { get; set; }
+        /// <summary>
+        /// International Standard Recording Code (ISRC)
+        /// </summary>
+        public string ISRC { get; set; }
+        /// <summary>
+        /// Catalog number
+        /// </summary>
+        public string CatalogNumber { get; set; }
+        /// <summary>
+        /// Audio source URL
+        /// </summary>
+        public string AudioSourceUrl { get; set; }
         /// <summary>
         /// Title sort order
         /// A string which should be used instead of the album for sorting purposes
@@ -155,9 +190,25 @@ namespace ATL
         /// Long description (may also be called "Podcast description")
         /// </summary>
         public string LongDescription { get; set; }
+        /// <summary>
+        /// Language
+        /// </summary>
+        public string Language { get; set; }
+        /// <summary>
+        /// Beats per minute
+        /// </summary>
+        public int? BPM { get; set; }
+        /// <summary>
+        /// Person or organization that encoded the file
+        /// </summary>
+        public string EncodedBy { get; set; }
+        /// <summary>
+        /// Software that encoded the file, with relevant settings if any
+        /// </summary>
+        public string Encoder { get; set; }
 
         /// <summary>
-		/// Recording Date (set to DateTime.MinValue to remove)
+		/// Recording date (set to DateTime.MinValue to remove)
 		/// </summary>
         public DateTime? Date
         {
@@ -169,22 +220,53 @@ namespace ATL
             }
         }
         /// <summary>
-		/// Recording Year
+		/// Recording year
 		/// </summary>
         public int? Year
         {
             get
             {
                 if (canUseValue(Date)) return Date.Value.Year;
-                else if (Settings.NullAbsentValues) return null;
-                else return 0;
+                if (Settings.NullAbsentValues) return null;
+                return 0;
             }
             set
             {
-                if (canUseValue(value) && value.Value > DateTime.MinValue.Year) Date = new DateTime(value.Value, 1, 1);
+                if (canUseValue(value) && value.Value > DateTime.MinValue.Year) Date = new DateTime(value.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc);
                 else if (Settings.NullAbsentValues) Date = null;
                 else Date = DateTime.MinValue;
                 isYearExplicit = true;
+            }
+        }
+        /// <summary>
+        /// Original release date (set to DateTime.MinValue to remove)
+        /// </summary>
+        public DateTime? OriginalReleaseDate
+        {
+            get => originalReleaseDate;
+            set
+            {
+                originalReleaseDate = value;
+                isORYearExplicit = false;
+            }
+        }
+        /// <summary>
+        /// Original release year
+        /// </summary>
+        public int? OriginalReleaseYear
+        {
+            get
+            {
+                if (canUseValue(OriginalReleaseDate)) return OriginalReleaseDate.Value.Year;
+                if (Settings.NullAbsentValues) return null;
+                return 0;
+            }
+            set
+            {
+                if (canUseValue(value) && value.Value > DateTime.MinValue.Year) OriginalReleaseDate = new DateTime(value.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                else if (Settings.NullAbsentValues) OriginalReleaseDate = null;
+                else OriginalReleaseDate = DateTime.MinValue;
+                isORYearExplicit = true;
             }
         }
         /// <summary>
@@ -227,18 +309,30 @@ namespace ATL
         /// Use MetaDataHolder.DATETIME_PREFIX + DateTime.ToFileTime() to set dates. ATL will format them properly.
         /// </summary>
         public IDictionary<string, string> AdditionalFields { get; set; }
-        private ICollection<string> initialAdditionalFields; // Initial fields, used to identify removed ones
+        // Initial fields, used to identify removed ones
+        private readonly ICollection<string> initialAdditionalFields = new List<string>();
 
-        private IList<PictureInfo> currentEmbeddedPictures { get; set; } = null;
-        private ICollection<PictureInfo> initialEmbeddedPictures; // Initial fields, used to identify removed ones
+        private IList<PictureInfo> currentEmbeddedPictures { get; set; }
+        // Initial fields, used to identify removed ones
+        private readonly ICollection<PictureInfo> initialEmbeddedPictures = new List<PictureInfo>();
 
-        private DateTime? date = null;
-        private bool isYearExplicit = false;
+        private DateTime? date;
+        private bool isYearExplicit;
+
+        private DateTime? originalReleaseDate;
+        private bool isORYearExplicit;
 
         /// <summary>
-        /// Format of the tagging systems
+        /// Format of tagging systems present on the file
+        /// NB : their IDs match `MetaDataIOFactory.TagType` enum values
         /// </summary>
         public IList<Format> MetadataFormats { get; internal set; }
+
+        /// <summary>
+        /// Format of tagging systems supported by the file
+        /// NB : their IDs match `MetaDataIOFactory.TagType` enum values
+        /// </summary>
+        public IList<Format> SupportedMetadataFormats { get; internal set; }
 
 
         //=== PHYSICAL PROPERTIES
@@ -271,14 +365,12 @@ namespace ATL
         /// <summary>
         /// Format of the audio data
         /// </summary>
-        public Format AudioFormat { get; internal set; }
+        public AudioFormat AudioFormat { get; internal set; }
         /// <summary>
         /// Duration (seconds)
         /// </summary>
-        public int Duration
-        {
-            get => (int)Math.Round(DurationMs / 1000.0);
-        }
+        public int Duration => (int)Math.Round(DurationMs / 1000.0);
+
         /// <summary>
 		/// Duration (milliseconds)
 		/// </summary>
@@ -298,20 +390,7 @@ namespace ATL
         /// NB1 : PictureInfo.PictureData (raw binary picture data) is valued
         /// NB2 : Also allows to value embedded pictures inside chapters
         /// </summary>
-        public IList<PictureInfo> EmbeddedPictures
-        {
-            get => getEmbeddedPictures();
-        }
-
-        /// <summary>
-        /// Stream used to access in-memory Track contents (alternative to path, which is used to access on-disk Track contents)
-        /// </summary>
-        private readonly Stream stream;
-        /// <summary>
-        /// MIME-type that describes in-memory Track contents (used in conjunction with stream)
-        /// </summary>
-        private readonly string mimeType;
-        private AudioFileIO fileIO;
+        public IList<PictureInfo> EmbeddedPictures => getEmbeddedPictures();
 
 
         // ========== METHODS
@@ -322,8 +401,7 @@ namespace ATL
             if (null == currentEmbeddedPictures)
             {
                 currentEmbeddedPictures = new List<PictureInfo>();
-                initialEmbeddedPictures = new List<PictureInfo>();
-
+                initialEmbeddedPictures.Clear();
                 Update(true);
             }
 
@@ -344,6 +422,9 @@ namespace ATL
 
             IMetaDataIO metadata = fileIO.Metadata;
             MetadataFormats = new List<Format>(metadata.MetadataFormats);
+            SupportedMetadataFormats = new List<Format>(fileIO.GetSupportedMetas().Select(f => MetaDataIOFactory.GetInstance().getFormat((int)f)));
+
+            mimeType = fileIO.AudioFormat.MimeList.FirstOrDefault();
 
             if (onlyReadEmbeddedPictures)
             {
@@ -363,13 +444,12 @@ namespace ATL
             if (currentEmbeddedPictures != null)
             {
                 currentEmbeddedPictures.Clear();
-                initialEmbeddedPictures.Clear();
                 currentEmbeddedPictures = null;
-                initialEmbeddedPictures = null;
             }
+            initialEmbeddedPictures.Clear();
 
             Title = processString(metadata.Title);
-            if (Settings.UseFileNameWhenNoTitle && (null == Title || "" == Title) && Path != InMemoryPath)
+            if (Settings.UseFileNameWhenNoTitle && string.IsNullOrEmpty(Title) && Path != AudioDataIOFactory.IN_MEMORY)
             {
                 Title = System.IO.Path.GetFileNameWithoutExtension(Path);
             }
@@ -384,7 +464,12 @@ namespace ATL
             Publisher = Utils.ProtectValue(processString(metadata.Publisher));
             AlbumArtist = Utils.ProtectValue(processString(metadata.AlbumArtist));
             Conductor = Utils.ProtectValue(processString(metadata.Conductor));
+            Lyricist = Utils.ProtectValue(processString(metadata.Lyricist));
+            InvolvedPeople = Utils.ProtectValue(processString(metadata.InvolvedPeople));
             ProductId = Utils.ProtectValue(processString(metadata.ProductId));
+            ISRC = Utils.ProtectValue(processString(metadata.ISRC));
+            CatalogNumber = Utils.ProtectValue(processString(metadata.CatalogNumber));
+            AudioSourceUrl = Utils.ProtectValue(processString(metadata.AudioSourceUrl));
             SortAlbum = Utils.ProtectValue(processString(metadata.SortAlbum));
             SortAlbumArtist = Utils.ProtectValue(processString(metadata.SortAlbumArtist));
             SortArtist = Utils.ProtectValue(processString(metadata.SortArtist));
@@ -393,6 +478,7 @@ namespace ATL
             SeriesTitle = Utils.ProtectValue(processString(metadata.SeriesTitle));
             SeriesPart = Utils.ProtectValue(processString(metadata.SeriesPart));
             LongDescription = Utils.ProtectValue(processString(metadata.LongDescription));
+            Language = Utils.ProtectValue(processString(metadata.Language));
             Album = Utils.ProtectValue(processString(metadata.Album));
             isYearExplicit = metadata.IsDateYearOnly;
             if (metadata.IsDateYearOnly)
@@ -403,12 +489,24 @@ namespace ATL
             {
                 Date = update(metadata.Date);
             }
+            isORYearExplicit = metadata.IsOriginalReleaseDateYearOnly;
+            if (metadata.IsOriginalReleaseDateYearOnly)
+            {
+                OriginalReleaseYear = update(metadata.OriginalReleaseDate.Year);
+            }
+            else
+            {
+                OriginalReleaseDate = update(metadata.OriginalReleaseDate);
+            }
             PublishingDate = update(metadata.PublishingDate);
             TrackNumber = update(metadata.TrackNumber);
             TrackTotal = update(metadata.TrackTotal);
             DiscNumber = update(metadata.DiscNumber);
             DiscTotal = update(metadata.DiscTotal);
             Popularity = metadata.Popularity;
+            BPM = metadata.BPM;
+            EncodedBy = metadata.EncodedBy;
+            Encoder = metadata.Encoder;
 
             Chapters = metadata.Chapters;
             ChaptersTableDescription = Utils.ProtectValue(metadata.ChaptersTableDescription);
@@ -421,7 +519,8 @@ namespace ATL
             {
                 AdditionalFields.Add(key, processString(metadata.AdditionalFields[key]));
             }
-            initialAdditionalFields = metadata.AdditionalFields.Keys;
+            initialAdditionalFields.Clear();
+            foreach (string key in metadata.AdditionalFields.Keys) initialAdditionalFields.Add(key);
 
             // Physical information
             Bitrate = fileIO.IntBitRate;
@@ -438,7 +537,7 @@ namespace ATL
             TechnicalInformation = new TechnicalInfo(fileIO.AudioDataOffset, fileIO.AudioDataSize);
         }
 
-        private TagData toTagData()
+        internal TagData toTagData()
         {
             TagData result = new TagData();
 
@@ -458,7 +557,12 @@ namespace ATL
             result.IntegrateValue(Field.PUBLISHING_DATE, toTagValue(PublishingDate));
             result.IntegrateValue(Field.ALBUM_ARTIST, AlbumArtist);
             result.IntegrateValue(Field.CONDUCTOR, Conductor);
+            result.IntegrateValue(Field.LYRICIST, Lyricist);
+            result.IntegrateValue(Field.INVOLVED_PEOPLE, InvolvedPeople);
             result.IntegrateValue(Field.PRODUCT_ID, ProductId);
+            result.IntegrateValue(Field.ISRC, ISRC);
+            result.IntegrateValue(Field.CATALOG_NUMBER, CatalogNumber);
+            result.IntegrateValue(Field.AUDIO_SOURCE_URL, AudioSourceUrl);
             result.IntegrateValue(Field.SORT_ALBUM, SortAlbum);
             result.IntegrateValue(Field.SORT_ALBUM_ARTIST, SortAlbumArtist);
             result.IntegrateValue(Field.SORT_ARTIST, SortArtist);
@@ -467,6 +571,10 @@ namespace ATL
             result.IntegrateValue(Field.SERIES_TITLE, SeriesTitle);
             result.IntegrateValue(Field.SERIES_PART, SeriesPart);
             result.IntegrateValue(Field.LONG_DESCRIPTION, LongDescription);
+            result.IntegrateValue(Field.LANGUAGE, Language);
+            result.IntegrateValue(Field.BPM, toTagValue(BPM));
+            result.IntegrateValue(Field.ENCODED_BY, EncodedBy);
+            result.IntegrateValue(Field.ENCODER, Encoder);
             if (isYearExplicit)
             {
                 result.IntegrateValue(Field.RECORDING_YEAR, toTagValue(Year));
@@ -477,12 +585,22 @@ namespace ATL
                 result.IntegrateValue(Field.RECORDING_DATE, toTagValue(Date));
                 result.IntegrateValue(Field.RECORDING_YEAR, "");
             }
+            if (isORYearExplicit)
+            {
+                result.IntegrateValue(Field.ORIG_RELEASE_YEAR, toTagValue(OriginalReleaseYear));
+                result.IntegrateValue(Field.ORIG_RELEASE_DATE, toTagValue(OriginalReleaseYear));
+            }
+            else
+            {
+                result.IntegrateValue(Field.ORIG_RELEASE_DATE, toTagValue(OriginalReleaseDate));
+                result.IntegrateValue(Field.ORIG_RELEASE_YEAR, "");
+            }
             result.IntegrateValue(Field.ALBUM, Album);
             result.IntegrateValue(Field.TRACK_NUMBER, toTagValue(TrackNumber));
             result.IntegrateValue(Field.TRACK_TOTAL, toTagValue(TrackTotal));
             result.IntegrateValue(Field.DISC_NUMBER, toTagValue(DiscNumber));
             result.IntegrateValue(Field.DISC_TOTAL, toTagValue(DiscTotal));
-            result.IntegrateValue(Field.CHAPTERS_TOC_DESCRIPTION, ChaptersTableDescription.ToString());
+            result.IntegrateValue(Field.CHAPTERS_TOC_DESCRIPTION, ChaptersTableDescription);
 
             result.Chapters = new List<ChapterInfo>();
             foreach (ChapterInfo chapter in Chapters)
@@ -516,7 +634,7 @@ namespace ATL
 
             result.Pictures = new List<PictureInfo>();
 
-            if (initialEmbeddedPictures != null && currentEmbeddedPictures != null)
+            if (currentEmbeddedPictures != null)
             {
                 // Process target pictures first, in their specified order
                 foreach (PictureInfo targetPic in currentEmbeddedPictures)
@@ -557,7 +675,173 @@ namespace ATL
         }
 
         /// <summary>
-        /// Save Track to disk
+        /// Save Track to the given file using all existing tag types
+        /// Use SaveTo instead of SaveToAsync if you're looking for pure performance
+        /// or if you don't need any progress feedback (e.g. console app, mass-updating files)
+        ///
+        /// After completion, any further update on this object will be made on the _target_ file.
+        ///
+        /// Please note that saving to the file you're already using will result in failure.
+        /// </summary>
+        /// <param name="target">Absolute path of the file to save the Track to</param>
+        /// <param name="writeProgress">Callback that will be called multiple times when saving changes, as saving progresses (default : null = no callback)</param>
+        /// <returns>True if save succeeds; false if it fails
+        /// NB : Failure reason is saved to the ATL log</returns>
+        public bool SaveTo(string target, Action<float> writeProgress = null)
+        {
+            if (null == target || target == Path) return false;
+
+            // Copy the contents of the file
+            if (null == this.stream)
+            {
+                File.Copy(Path, target, true);
+            }
+            else
+            {
+                this.stream.Seek(0, SeekOrigin.Begin);
+                using FileStream to = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.Read);
+                StreamUtils.CopyStream(this.stream, to);
+            }
+            // Write what needs to be written
+            bool result = fileIO.Save(toTagData(), null, target, null, new ProgressToken<float>(writeProgress));
+            // Update internal references
+            if (result)
+            {
+                Path = target;
+                stream = null;
+                Update();
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Save Track to the given target Stream using all existing tag types
+        /// Use SaveTo instead of SaveToAsync if you're looking for pure performance
+        /// or if you don't need any progress feedback (e.g. console app, mass-updating files)
+        ///
+        /// After completion, any further update on this object will be made on the _target_ Stream.
+        ///
+        /// Please note that saving to the Stream you're already using will result in failure.
+        /// </summary>
+        /// <param name="target">Stream to save to</param>
+        /// <param name="writeProgress">Callback that will be called multiple times when saving changes, as saving progresses (default : null = no callback)</param>
+        /// <returns>True if save succeeds; false if it fails
+        /// NB : Failure reason is saved to the ATL log</returns>
+        public bool SaveTo(Stream target, Action<float> writeProgress = null)
+        {
+            if (null == target || target == this.stream) return false;
+
+            // Copy the contents of the file
+            if (null == this.stream)
+            {
+                using FileStream from = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                StreamUtils.CopyStream(from, target);
+            }
+            else
+            {
+                this.stream.Seek(0, SeekOrigin.Begin);
+                StreamUtils.CopyStream(this.stream, target);
+            }
+            target.Seek(0, SeekOrigin.Begin);
+            // Write what needs to be written
+            bool result = fileIO.Save(toTagData(), null, null, target, new ProgressToken<float>(writeProgress));
+            // Update internal references
+            if (result)
+            {
+                this.stream = target;
+                this.Path = AudioDataIOFactory.IN_MEMORY;
+                Update();
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Save Track to disk using all existing tag types
+        /// Use SaveTo instead of SaveToAsync if you're looking for pure performance
+        /// or if you don't need any progress feedback (e.g. console app, mass-updating files)
+        ///
+        /// After completion, any further update on this object will be made on the _target_ file.
+        ///
+        /// Please note that saving to the file you're already using will result in failure.
+        /// </summary>
+        /// <param name="target">Absolute path of the file to save the Track to</param>
+        /// <param name="writeProgress">Callback that will be called multiple times when saving changes, as saving progresses (default : null = no callback)</param>
+        /// <returns>True if save succeeds; false if it fails
+        /// NB : Failure reason is saved to the ATL log</returns>
+        public async Task<bool> SaveToAsync(string target, Action<float> writeProgress = null)
+        {
+            if (null == target || target == Path) return false;
+
+            // Copy the contents of the file
+            if (null == this.stream)
+            {
+                await StreamUtils.CopyFileAsync(Path, target);
+            }
+            else
+            {
+                this.stream.Seek(0, SeekOrigin.Begin);
+                await using FileStream to = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.Read);
+                await StreamUtils.CopyStreamAsync(this.stream, to);
+            }
+            // Write what needs to be written
+            bool result = await fileIO.SaveAsync(toTagData(), null, target, null, new ProgressToken<float>(writeProgress));
+            // Update internal references
+            if (result)
+            {
+                Path = target;
+                stream = null;
+                Update();
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Save Track to the target Stream using all existing tag types
+        /// Use SaveTo instead of SaveToAsync if you're looking for pure performance
+        /// or if you don't need any progress feedback (e.g. console app, mass-updating files)
+        ///
+        /// After completion, any further update on this object will be made on the _target_ Stream.
+        ///
+        /// Please note that saving to the Stream you're already using will result in failure.
+        /// </summary>
+        /// <param name="target">Stream to save to</param>
+        /// <param name="writeProgress">Callback that will be called multiple times when saving changes, as saving progresses (default : null = no callback)</param>
+        /// <returns>True if save succeeds; false if it fails
+        /// NB : Failure reason is saved to the ATL log</returns>
+        public async Task<bool> SaveToAsync(Stream target, Action<float> writeProgress = null)
+        {
+            if (null == target || target == this.stream) return false;
+
+            // Copy the contents
+            if (null == this.stream)
+            {
+                await using FileStream from = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                await StreamUtils.CopyStreamAsync(from, target);
+            }
+            else
+            {
+                this.stream.Seek(0, SeekOrigin.Begin);
+                await StreamUtils.CopyStreamAsync(this.stream, target);
+            }
+            target.Seek(0, SeekOrigin.Begin);
+            // Write what needs to be written
+            bool result = await fileIO.SaveAsync(toTagData(), null, null, target, new ProgressToken<float>(writeProgress));
+            // Update internal references
+            if (result)
+            {
+                this.stream = target;
+                this.Path = AudioDataIOFactory.IN_MEMORY;
+                Update();
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Save Track to disk using all existing tag types
         /// Use Save instead of SaveAsync if you're looking for pure performance
         /// or if you don't need any progress feedback (e.g. console app, mass-updating files)
         /// </summary>
@@ -566,14 +850,33 @@ namespace ATL
         /// NB : Failure reason is saved to the ATL log</returns>
         public bool Save(Action<float> writeProgress = null)
         {
-            bool result = fileIO.Save(toTagData(), writeProgress);
+            bool result = fileIO.Save(toTagData(), null, null, null, new ProgressToken<float>(writeProgress));
             if (result) Update();
 
             return result;
         }
 
         /// <summary>
-        /// Save Track to disk
+        /// Save Track to disk using the given tag type
+        /// Use Save instead of SaveAsync if you're looking for pure performance
+        /// or if you don't need any progress feedback (e.g. console app, mass-updating files)
+        /// </summary>
+        /// <param name="tagType">Tag type to save.
+        /// - Use TagType.ANY to save on existing tags (same behaviour as Save(Action&lt;float&gt;))
+        /// - Use any other TagType to save on existing tags and on the given TagType, if supported</param>
+        /// <param name="writeProgress">Callback that will be called multiple times when saving changes, as saving progresses (default : null = no callback)</param>
+        /// <returns>True if save succeeds; false if it fails
+        /// NB : Failure reason is saved to the ATL log</returns>
+        public bool Save(MetaDataIOFactory.TagType tagType, Action<float> writeProgress = null)
+        {
+            bool result = fileIO.Save(toTagData(), tagType, null, null, new ProgressToken<float>(writeProgress));
+            if (result) Update();
+
+            return result;
+        }
+
+        /// <summary>
+        /// Save Track to disk using all existing tag types
         /// Use SaveAsync instead of Save if you need progress feedback
         /// (e.g. Windows Forms app with progress bar that updates one file at a time)
         /// </summary>
@@ -582,7 +885,26 @@ namespace ATL
         /// NB : Failure reason is saved to the ATL log</returns>
         public async Task<bool> SaveAsync(IProgress<float> writeProgress = null)
         {
-            bool result = await fileIO.SaveAsync(toTagData(), writeProgress);
+            bool result = await fileIO.SaveAsync(toTagData(), null, null, null, new ProgressToken<float>(writeProgress));
+            if (result) Update();
+
+            return result;
+        }
+
+        /// <summary>
+        /// Save Track to disk using the given tag type
+        /// Use SaveAsync instead of Save if you need progress feedback
+        /// (e.g. Windows Forms app with progress bar that updates one file at a time)
+        /// </summary>
+        /// <param name="tagType">Tag type to save.
+        /// - Use TagType.ANY to save on existing tags (same behaviour as SaveAsync(IProgress&lt;float&gt;))
+        /// - Use any other TagType to save on existing tags and on the given TagType, if supported</param>
+        /// <param name="writeProgress">Callback that will be called multiple times when saving changes, as saving progresses (default : null = no callback)</param>
+        /// <returns>True if save succeeds; false if it fails
+        /// NB : Failure reason is saved to the ATL log</returns>
+        public async Task<bool> SaveAsync(MetaDataIOFactory.TagType tagType, IProgress<float> writeProgress = null)
+        {
+            bool result = await fileIO.SaveAsync(toTagData(), tagType, null, null, new ProgressToken<float>(writeProgress));
             if (result) Update();
 
             return result;
@@ -600,7 +922,7 @@ namespace ATL
         /// NB : Failure reason is saved to the ATL log</returns>
         public bool Remove(MetaDataIOFactory.TagType tagType = MetaDataIOFactory.TagType.ANY, Action<float> writeProgress = null)
         {
-            bool result = fileIO.Remove(tagType, writeProgress);
+            bool result = fileIO.Remove(tagType, new ProgressToken<float>(writeProgress));
             if (result) Update();
 
             return result;
@@ -618,61 +940,122 @@ namespace ATL
         /// NB : Failure reason is saved to the ATL log</returns>
         public async Task<bool> RemoveAsync(MetaDataIOFactory.TagType tagType = MetaDataIOFactory.TagType.ANY, IProgress<float> writeProgress = null)
         {
-            bool result = await fileIO.RemoveAsync(tagType, writeProgress);
+            bool result = await fileIO.RemoveAsync(tagType, new ProgressToken<float>(writeProgress));
             if (result) Update();
 
             return result;
         }
 
+        /// <summary>
+        /// Copy all metadata to the given track
+        /// NB : Physical information is not copied
+        /// </summary>
+        /// <param name="t">Track to copy metadata to</param>
+        public void CopyMetadataTo(Track t)
+        {
+            t.currentEmbeddedPictures ??= new List<PictureInfo>();
+            t.currentEmbeddedPictures.Clear();
+            if (EmbeddedPictures != null)
+                foreach (var pic in EmbeddedPictures) t.currentEmbeddedPictures.Add(new PictureInfo(pic));
+
+            t.Title = Title;
+            t.Artist = Artist;
+            t.Composer = Composer;
+            t.Comment = Comment;
+            t.Genre = Genre;
+            t.OriginalArtist = OriginalArtist;
+            t.OriginalAlbum = OriginalAlbum;
+            t.Description = Description;
+            t.Copyright = Copyright;
+            t.Publisher = Publisher;
+            t.AlbumArtist = AlbumArtist;
+            t.Conductor = Conductor;
+            t.ProductId = ProductId;
+            t.SortAlbum = SortAlbum;
+            t.SortAlbumArtist = SortAlbumArtist;
+            t.SortArtist = SortArtist;
+            t.SortTitle = SortTitle;
+            t.Group = Group;
+            t.SeriesTitle = SeriesTitle;
+            t.SeriesPart = SeriesPart;
+            t.LongDescription = LongDescription;
+            t.Album = Album;
+            // Year is not set directly as it actually sets Date and isYearExplicit
+            t.Date = Date;
+            t.isYearExplicit = isYearExplicit;
+            t.PublishingDate = PublishingDate;
+            t.TrackNumber = TrackNumber;
+            t.TrackTotal = TrackTotal;
+            t.DiscNumber = DiscNumber;
+            t.DiscTotal = DiscTotal;
+            t.Popularity = Popularity;
+            t.BPM = BPM;
+            t.EncodedBy = EncodedBy;
+
+            t.Chapters ??= new List<ChapterInfo>();
+            t.Chapters.Clear();
+            if (Chapters != null)
+                foreach (var chap in Chapters) t.Chapters.Add(new ChapterInfo(chap));
+            t.ChaptersTableDescription = ChaptersTableDescription;
+
+            if (Lyrics != null) t.Lyrics = new LyricsInfo(Lyrics);
+            else t.Lyrics = null;
+
+            t.AdditionalFields ??= new Dictionary<string, string>();
+            t.AdditionalFields.Clear();
+            if (AdditionalFields != null)
+                foreach (var af in AdditionalFields) t.AdditionalFields.Add(new KeyValuePair<string, string>(af.Key, af.Value));
+        }
+
         /// FORMATTING UTILITIES
 
-        private string processString(string value)
+        private static string processString(string value)
         {
             return value.Replace(Settings.InternalValueSeparator, Settings.DisplayValueSeparator);
         }
 
-        private DateTime? update(DateTime value)
+        private static DateTime? update(DateTime value)
         {
             if (value > DateTime.MinValue || !Settings.NullAbsentValues) return value;
             else return null;
         }
 
-        private int? update(int value)
+        private static int? update(int value)
         {
             if (value != 0 || !Settings.NullAbsentValues) return value;
             else return null;
         }
 
-        private bool canUseValue(DateTime? value)
+        private static bool canUseValue(DateTime? value)
         {
-            return (value.HasValue && (Settings.NullAbsentValues || !value.Equals(DateTime.MinValue)));
+            return value.HasValue && (Settings.NullAbsentValues || !value.Equals(DateTime.MinValue));
         }
-        private bool canUseValue(int? value)
+        private static bool canUseValue(int? value)
         {
-            return (value.HasValue && (Settings.NullAbsentValues || value != 0));
-        }
-
-        private bool canUseValue(float value)
-        {
-            return (Settings.NullAbsentValues || value != 0.0);
+            return value.HasValue && (Settings.NullAbsentValues || value != 0);
         }
 
-        private string toTagValue(DateTime? value)
+        private static bool canUseValue(float value)
+        {
+            return Settings.NullAbsentValues || !Utils.ApproxEquals(value, 0);
+        }
+
+        private static string toTagValue(DateTime? value)
         {
             if (canUseValue(value)) return TrackUtils.FormatISOTimestamp(value.Value);
-            else return Settings.NullAbsentValues ? "" : "0";
+            return Settings.NullAbsentValues ? "" : "0";
         }
 
-        private string toTagValue(int? value)
+        private static string toTagValue(int? value)
         {
             if (canUseValue(value)) return value.Value.ToString();
-            else return Settings.NullAbsentValues ? "" : "0";
+            return Settings.NullAbsentValues ? "" : "0";
         }
 
-        private string toTagValue(float value)
+        private static string toTagValue(float value)
         {
             if (canUseValue(value)) return value.ToString();
-            else return Settings.NullAbsentValues ? "" : "0";
+            return Settings.NullAbsentValues ? "" : "0";
         }
     }
 }

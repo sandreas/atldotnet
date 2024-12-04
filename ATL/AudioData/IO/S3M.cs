@@ -23,7 +23,7 @@ namespace ATL.AudioData.IO
     {
         private const string ZONE_TITLE = "title";
 
-        private const String S3M_SIGNATURE = "SCRM";
+        private const string S3M_SIGNATURE = "SCRM";
         private const byte MAX_ROWS = 64;
 
         // Effects
@@ -45,12 +45,9 @@ namespace ATL.AudioData.IO
         private byte initialSpeed;
         private byte initialTempo;
         private string trackerName;
-        private double bitrate;
-        private double duration;
 
         private SizeInfo sizeInfo;
-        private readonly string filePath;
-        private readonly Format audioFormat;
+        private readonly AudioFormat audioFormat;
 
 
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
@@ -58,28 +55,37 @@ namespace ATL.AudioData.IO
         // IAudioDataIO
         public int SampleRate => 0;
         public bool IsVBR => false;
-        public Format AudioFormat
+        public AudioFormat AudioFormat
         {
             get
             {
-                Format f = new Format(audioFormat);
+                AudioFormat f = new AudioFormat(audioFormat);
                 f.Name = f.Name + " (" + trackerName + ")";
                 return f;
             }
         }
         public int CodecFamily => AudioDataIOFactory.CF_SEQ_WAV;
-        public string FileName => filePath;
-        public double BitRate => bitrate;
+        public string FileName { get; }
+
+        public double BitRate { get; private set; }
+
         public int BitDepth => -1; // Irrelevant for that format
-        public double Duration => duration;
+        public double Duration { get; private set; }
+
         public ChannelsArrangement ChannelsArrangement => STEREO;
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType) => metaDataType == MetaDataIOFactory.TagType.NATIVE;
+        /// <inheritdoc/>
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
+        {
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.NATIVE };
+        }
         public long AudioDataOffset { get; set; }
         public long AudioDataSize { get; set; }
 
         // IMetaDataIO
         protected override int getDefaultTagOffset() => TO_BUILTIN;
         protected override MetaDataIOFactory.TagType getImplementedTagType() => MetaDataIOFactory.TagType.NATIVE;
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
         protected override Field getFrameMapping(string zone, string ID, byte tagVersion)
         {
             throw new NotImplementedException();
@@ -109,8 +115,8 @@ namespace ATL.AudioData.IO
         private void resetData()
         {
             // Reset variables
-            duration = 0;
-            bitrate = 0;
+            Duration = 0;
+            BitRate = 0;
 
             FPatternTable = new List<byte>();
             FChannelTable = new List<byte>();
@@ -126,9 +132,9 @@ namespace ATL.AudioData.IO
             ResetData();
         }
 
-        public S3M(string filePath, Format format)
+        public S3M(string filePath, AudioFormat format)
         {
-            this.filePath = filePath;
+            this.FileName = filePath;
             audioFormat = format;
             resetData();
         }
@@ -151,8 +157,6 @@ namespace ATL.AudioData.IO
             bool isInsideLoop = false;
             double loopDuration = 0;
 
-            IList<S3MEvent> row;
-
             double speed = initialSpeed;
             double tempo = initialTempo;
             double previousTempo = tempo;
@@ -163,7 +167,7 @@ namespace ATL.AudioData.IO
                 {
                     currentPattern = FPatternTable[currentPatternIndex];
 
-                    while ((currentPattern > FPatterns.Count - 1) && (currentPatternIndex < FPatternTable.Count - 1))
+                    while (currentPattern > FPatterns.Count - 1 && currentPatternIndex < FPatternTable.Count - 1)
                     {
                         if (currentPattern.Equals(255)) // End of song / sub-song
                         {
@@ -175,7 +179,7 @@ namespace ATL.AudioData.IO
                     }
                     if (currentPattern > FPatterns.Count - 1) return result;
 
-                    row = FPatterns[currentPattern][currentRow];
+                    var row = FPatterns[currentPattern][currentRow];
                     foreach (S3MEvent theEvent in row) // Events loop
                     {
 
@@ -270,7 +274,7 @@ namespace ATL.AudioData.IO
             return result;
         }
 
-        private string getTrackerName(ushort trackerVersion)
+        private static string getTrackerName(ushort trackerVersion)
         {
             string result = "";
 
@@ -311,23 +315,18 @@ namespace ATL.AudioData.IO
 
         private void readPatterns(BufferedBinaryReader source, IList<ushort> patternPointers)
         {
-            byte rowNum;
-            byte what;
-            IList<S3MEvent> aRow;
-            IList<IList<S3MEvent>> aPattern;
-
             foreach (ushort pos in patternPointers)
             {
-                aPattern = new List<IList<S3MEvent>>();
+                IList<IList<S3MEvent>> aPattern = new List<IList<S3MEvent>>();
 
                 source.Seek(pos << 4, SeekOrigin.Begin);
-                aRow = new List<S3MEvent>();
-                rowNum = 0;
+                IList<S3MEvent> aRow = new List<S3MEvent>();
+                byte rowNum = 0;
                 source.Seek(2, SeekOrigin.Current); // patternSize
 
                 do
                 {
-                    what = source.ReadByte();
+                    var what = source.ReadByte();
 
                     if (what > 0)
                     {
@@ -359,25 +358,15 @@ namespace ATL.AudioData.IO
 
         // === PUBLIC METHODS ===
 
-        public bool Read(Stream source, SizeInfo sizeInfo, ReadTagParams readTagParams)
+        public bool Read(Stream source, SizeInfo sizeNfo, ReadTagParams readTagParams)
         {
-            this.sizeInfo = sizeInfo;
+            this.sizeInfo = sizeNfo;
 
             return read(source, readTagParams);
         }
 
         protected override bool read(Stream source, ReadTagParams readTagParams)
         {
-            bool result = true;
-
-            ushort nbOrders = 0;
-            ushort nbPatterns = 0;
-            ushort nbInstruments = 0;
-            byte nbChannels = 0;
-
-            ushort flags;
-            ushort trackerVersion;
-
             StringBuilder comment = new StringBuilder("");
 
             IList<ushort> patternPointers = new List<ushort>();
@@ -398,12 +387,12 @@ namespace ATL.AudioData.IO
             AudioDataOffset = bSource.Position;
             AudioDataSize = sizeInfo.FileSize - AudioDataOffset;
 
-            nbOrders = bSource.ReadUInt16();
-            nbInstruments = bSource.ReadUInt16();
-            nbPatterns = bSource.ReadUInt16();
+            var nbOrders = bSource.ReadUInt16();
+            var nbInstruments = bSource.ReadUInt16();
+            var nbPatterns = bSource.ReadUInt16();
 
-            flags = bSource.ReadUInt16();
-            trackerVersion = bSource.ReadUInt16();
+            bSource.ReadUInt16();
+            var trackerVersion = bSource.ReadUInt16();
 
             trackerName = getTrackerName(trackerVersion);
 
@@ -413,8 +402,6 @@ namespace ATL.AudioData.IO
                 throw new InvalidDataException("Invalid S3M file (file signature mismatch)");
             }
             bSource.Seek(1, SeekOrigin.Current); // globalVolume (8b)
-
-            tagExists = true;
 
             initialSpeed = bSource.ReadByte();
             initialTempo = bSource.ReadByte();
@@ -429,26 +416,17 @@ namespace ATL.AudioData.IO
             for (int i = 0; i < 32; i++)
             {
                 FChannelTable.Add(bSource.ReadByte());
-                if (FChannelTable[FChannelTable.Count - 1] < 30) nbChannels++;
+                // if (FChannelTable[^1] < 30) nbChannels++;
             }
 
             // Pattern table
-            for (int i = 0; i < nbOrders; i++)
-            {
-                FPatternTable.Add(bSource.ReadByte());
-            }
+            for (int i = 0; i < nbOrders; i++) FPatternTable.Add(bSource.ReadByte());
 
             // Instruments pointers
-            for (int i = 0; i < nbInstruments; i++)
-            {
-                instrumentPointers.Add(bSource.ReadUInt16());
-            }
+            for (int i = 0; i < nbInstruments; i++) instrumentPointers.Add(bSource.ReadUInt16());
 
             // Patterns pointers
-            for (int i = 0; i < nbPatterns; i++)
-            {
-                patternPointers.Add(bSource.ReadUInt16());
-            }
+            for (int i = 0; i < nbPatterns; i++) patternPointers.Add(bSource.ReadUInt16());
 
             readInstruments(bSource, instrumentPointers);
             readPatterns(bSource, patternPointers);
@@ -456,7 +434,7 @@ namespace ATL.AudioData.IO
 
             // == Computing track properties
 
-            duration = calculateDuration() * 1000.0;
+            Duration = calculateDuration() * 1000.0;
 
             foreach (Instrument i in FInstruments)
             {
@@ -466,9 +444,9 @@ namespace ATL.AudioData.IO
             if (comment.Length > 0) comment.Remove(comment.Length - 1, 1);
 
             tagData.IntegrateValue(Field.COMMENT, comment.ToString());
-            bitrate = sizeInfo.FileSize / duration;
+            BitRate = sizeInfo.FileSize / Duration;
 
-            return result;
+            return true;
         }
 
         protected override int write(TagData tag, Stream s, string zone)
@@ -478,7 +456,7 @@ namespace ATL.AudioData.IO
             if (ZONE_TITLE.Equals(zone))
             {
                 string title = tag[Field.TITLE];
-                if (title.Length > 28) title = title.Substring(0, 28);
+                if (title.Length > 28) title = title[..28];
                 else if (title.Length < 28) title = Utils.BuildStrictLengthString(title, 28, '\0');
                 StreamUtils.WriteBytes(s, Utils.Latin1Encoding.GetBytes(title));
                 result = 1;

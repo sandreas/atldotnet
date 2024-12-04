@@ -45,25 +45,20 @@ namespace ATL.AudioData.IO
         /// <param name="chunkSize">Size of the chunk to read</param>
         public static void FromStream(Stream source, MetaDataIO meta, ReadTagParams readTagParams, long chunkSize)
         {
-            if (chunkSize <= 4) return;
+            if (chunkSize < 8) return;
             byte[] data = new byte[chunkSize - 4];
 
-            IList<string> keys = WavHelper.getEligibleKeys("disp.entry", meta.AdditionalFields.Keys);
+            IList<string> keys = WavHelper.GetEligibleKeys("disp.entry", meta.AdditionalFields.Keys);
             int index = keys.Count;
 
             // Type
-            source.Read(data, 0, 4);
+            if (source.Read(data, 0, 4) < 4) return;
             int type = StreamUtils.DecodeInt32(data);
             meta.SetMetaField("disp.entry[" + index + "].type", getCfLabel(type), readTagParams.ReadAllMetaFrames);
 
             // Data
-            source.Read(data, 0, (int)chunkSize - 4);
-            string dataStr;
-            if (CF_TEXT == type) dataStr = Utils.Latin1Encoding.GetString(data);
-            else
-            {
-                dataStr = Utils.Latin1Encoding.GetString(Utils.EncodeTo64(data));
-            }
+            if (source.Read(data, 0, (int)chunkSize - 4) < chunkSize - 4) return;
+            var dataStr = Utils.Latin1Encoding.GetString(CF_TEXT == type ? data : Utils.EncodeTo64(data));
             meta.SetMetaField("disp.entry[" + index + "].value", dataStr, readTagParams.ReadAllMetaFrames);
         }
 
@@ -98,7 +93,7 @@ namespace ATL.AudioData.IO
         /// </summary>
         /// <param name="meta">Metadata I/O to test with</param>
         /// <returns>True if the given Metadata I/O contains data relevant to the Disp format; false if it doesn't</returns>
-        public static bool IsDataEligible(MetaDataIO meta)
+        public static bool IsDataEligible(MetaDataHolder meta)
         {
             return WavHelper.IsDataEligible(meta, "disp.entry");
         }
@@ -110,11 +105,11 @@ namespace ATL.AudioData.IO
         /// <param name="isLittleEndian">Endianness to write the size headers with</param>
         /// <param name="meta">Metadata to write</param>
         /// <returns>The number of written fields</returns>
-        public static int ToStream(BinaryWriter w, bool isLittleEndian, MetaDataIO meta)
+        public static int ToStream(BinaryWriter w, bool isLittleEndian, MetaDataHolder meta)
         {
             IDictionary<string, string> additionalFields = meta.AdditionalFields;
 
-            IList<string> keys = WavHelper.getEligibleKeys("disp.entry", additionalFields.Keys);
+            IList<string> keys = WavHelper.GetEligibleKeys("disp.entry", additionalFields.Keys);
             foreach (string key in keys) writeDispChunk(w, isLittleEndian, additionalFields, key);
 
             return keys.Count;
@@ -129,20 +124,17 @@ namespace ATL.AudioData.IO
             // Type
             string field = key + ".type";
             int type = -1;
-            if (additionalFields.Keys.Contains(field))
+            if (additionalFields.TryGetValue(field, out var value1))
             {
-                type = getCfCode(additionalFields[field]);
+                type = getCfCode(value1);
                 w.Write(type);
             }
 
             // Value
             field = key + ".value";
-            if (additionalFields.Keys.Contains(field))
+            if (additionalFields.TryGetValue(field, out var value2))
             {
-                string valueStr = additionalFields[field];
-                byte[] value;
-                if (CF_TEXT == type) value = Utils.Latin1Encoding.GetBytes(valueStr);
-                else value = Utils.DecodeFrom64(Utils.Latin1Encoding.GetBytes(valueStr));
+                var value = CF_TEXT == type ? Utils.Latin1Encoding.GetBytes(value2) : Utils.DecodeFrom64(Utils.Latin1Encoding.GetBytes(value2));
                 w.Write(value);
             }
 

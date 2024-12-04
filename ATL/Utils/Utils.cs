@@ -12,25 +12,24 @@ namespace Commons
     /// </summary>
     internal static class Utils
     {
-        private static Encoding latin1Encoding = Encoding.GetEncoding("ISO-8859-1");
-        private static IDictionary<string, Encoding> encodingCache = new Dictionary<string, Encoding>();
+        private static readonly IDictionary<string, Encoding> encodingCache = new Dictionary<string, Encoding>();
 
         /// <summary>
         /// 'ZERO WIDTH NO-BREAK SPACE' invisible character, sometimes used by certain tagging softwares
         /// Looks like a BOM unfortunately converted into an unicode character :/
         /// </summary>
-        public readonly static string UNICODE_INVISIBLE_EMPTY = "\uFEFF";
+        public static readonly string UNICODE_INVISIBLE_EMPTY = "\uFEFF";
 
-
-        /// <summary>
-        /// Define a delegate that does not carry any argument (useful for "pinging")
-        /// </summary>
-        public delegate void voidDelegate();
 
         /// <summary>
         /// ISO-8859-1 encoding
         /// </summary>
-        public static Encoding Latin1Encoding { get { return latin1Encoding; } }
+        public static Encoding Latin1Encoding { get; } = Encoding.GetEncoding("ISO-8859-1");
+
+        /// <summary>
+        /// Characters for CR LF (Carriage Return / Line Feed)
+        /// </summary>
+        public static readonly byte[] CR_LF = { 13, 10 };
 
 
         /// <summary>
@@ -40,17 +39,7 @@ namespace Commons
         /// <returns>Given string if non-null; else empty string</returns>
         public static string ProtectValue(string value)
         {
-            return (null == value) ? "" : value;
-        }
-
-        /// <summary>
-        /// Extract the year from the given DateTime; "" if DateTime is its minimum value
-        /// </summary>
-        /// <param name="value">DateTime to extract the year from</param>
-        /// <returns>Year from the given DateTime, or "" if not set</returns>
-        public static string ProtectYear(DateTime value)
-        {
-            return (DateTime.MinValue == value) ? "" : value.Year.ToString();
+            return value ?? "";
         }
 
         /// <summary>
@@ -87,40 +76,22 @@ namespace Commons
         /// <returns>Formatted duration according to the abovementioned convention</returns>
         public static string EncodeTimecode_s(long seconds)
         {
-            int h;
-            long m;
-            String hStr, mStr, sStr;
-            long s;
-            int d;
+            var h = Convert.ToInt32(Math.Floor(seconds / 3600.00));
+            var m = Convert.ToInt64(Math.Floor((seconds - 3600.00 * h) / 60));
+            var s = seconds - 60 * m - 3600 * h;
+            var d = Convert.ToInt32(Math.Floor(h / 24.00));
+            if (d > 0) h = h - 24 * d;
 
-            h = Convert.ToInt32(Math.Floor(seconds / 3600.00));
-            m = Convert.ToInt64(Math.Floor((seconds - 3600.00 * h) / 60));
-            s = seconds - (60 * m) - (3600 * h);
-            d = Convert.ToInt32(Math.Floor(h / 24.00));
-            if (d > 0) h = h - (24 * d);
-
-            hStr = h.ToString();
+            var hStr = h.ToString();
             if (1 == hStr.Length) hStr = "0" + hStr;
-            mStr = m.ToString();
+            var mStr = m.ToString();
             if (1 == mStr.Length) mStr = "0" + mStr;
-            sStr = s.ToString();
+            var sStr = s.ToString();
             if (1 == sStr.Length) sStr = "0" + sStr;
 
-            if (d > 0)
-            {
-                return d + "d " + hStr + ":" + mStr + ":" + sStr;
-            }
-            else
-            {
-                if (h > 0)
-                {
-                    return hStr + ":" + mStr + ":" + sStr;
-                }
-                else
-                {
-                    return mStr + ":" + sStr;
-                }
-            }
+            if (d > 0) return d + "d " + hStr + ":" + mStr + ":" + sStr;
+            if (h > 0) return hStr + ":" + mStr + ":" + sStr;
+            return mStr + ":" + sStr;
         }
 
         /// <summary>
@@ -129,7 +100,7 @@ namespace Commons
         /// </summary>
         /// <param name="timeCode">Timecode to convert</param>
         /// <returns>Duration of the given timecode expressed in milliseconds if succeeded; -1 if failed</returns>
-        static public int DecodeTimecodeToMs(string timeCode)
+        public static int DecodeTimecodeToMs(string timeCode)
         {
             int result = -1;
             DateTime dateTime;
@@ -151,21 +122,21 @@ namespace Commons
                 int seconds = 0;
                 int milliseconds = 0;
 
-                if (timeCode.Contains(":"))
+                if (timeCode.Contains(':'))
                 {
                     valid = true;
                     string[] parts = timeCode.Split(':');
-                    if (parts[parts.Length - 1].Contains("."))
+                    if (parts[^1].Contains('.'))
                     {
-                        string[] subPart = parts[parts.Length - 1].Split('.');
-                        parts[parts.Length - 1] = subPart[0];
+                        string[] subPart = parts[^1].Split('.');
+                        parts[^1] = subPart[0];
                         milliseconds = int.Parse(subPart[1]);
                     }
-                    seconds = int.Parse(parts[parts.Length - 1]);
-                    minutes = int.Parse(parts[parts.Length - 2]);
+                    seconds = int.Parse(parts[^1]);
+                    minutes = int.Parse(parts[^2]);
                     if (parts.Length >= 3)
                     {
-                        string[] subPart = parts[parts.Length - 3].Split('d');
+                        string[] subPart = parts[^3].Split('d');
                         if (subPart.Length > 1)
                         {
                             days = int.Parse(subPart[0].Trim());
@@ -188,6 +159,50 @@ namespace Commons
             if (!valid) result = -1;
 
             return result;
+        }
+
+        /// <summary>
+        /// Check the given string against the YYYY-MM-DD or YYYY/MM/DD date formats
+        /// </summary>
+        /// <param name="dateStr">String to check</param>
+        /// <returns>True if formatting is valid; false if not</returns>
+        public static bool CheckDateFormat(string dateStr)
+        {
+            var parts = dateStr.Contains('/') ? dateStr.Split('/') : dateStr.Split('-');
+            // General formatting
+            if (parts.Length != 3) return false;
+            if (parts[0].Length != 4 || !IsNumeric(parts[0])) return false;
+            if (parts[1].Length != 2 || !IsNumeric(parts[1])) return false;
+            if (parts[2].Length != 2 || !IsNumeric(parts[2])) return false;
+            // Range checks
+            var intVal = int.Parse(parts[0]);
+            if (intVal < 1900) return false;
+            intVal = int.Parse(parts[1]);
+            if (intVal < 0 || intVal > 12) return false;
+            intVal = int.Parse(parts[2]);
+            return intVal >= 0 && intVal <= 31;
+        }
+
+        /// <summary>
+        /// Check the given string against the hh:mm:ss time format
+        /// </summary>
+        /// <param name="timeStr">String to check</param>
+        /// <returns>True if formatting is valid; false if not</returns>
+        public static bool CheckTimeFormat(string timeStr)
+        {
+            var parts = timeStr.Split(':');
+            // General formatting
+            if (parts.Length != 3) return false;
+            if (parts[0].Length != 2 || !IsNumeric(parts[0])) return false;
+            if (parts[1].Length != 2 || !IsNumeric(parts[1])) return false;
+            if (parts[2].Length != 2 || !IsNumeric(parts[2])) return false;
+            // Range checks
+            var intVal = int.Parse(parts[0]);
+            if (intVal < 0 || intVal > 23) return false;
+            intVal = int.Parse(parts[1]);
+            if (intVal < 0 || intVal > 59) return false;
+            intVal = int.Parse(parts[2]);
+            return intVal >= 0 && intVal <= 59;
         }
 
         /// <summary>
@@ -232,9 +247,9 @@ namespace Commons
         /// <returns>Reprocessed string of given length, according to rules documented in the method description</returns>
         public static string BuildStrictLengthString(string value, int length, char paddingChar, bool padRight = true)
         {
-            string result = (null == value) ? "" : value;
+            string result = value ?? "";
 
-            if (result.Length > length) result = result.Substring(0, length);
+            if (result.Length > length) result = result[..length];
             else if (result.Length < length)
             {
                 if (padRight) result = result.PadRight(length, paddingChar);
@@ -300,27 +315,17 @@ namespace Commons
         /// <returns>Resulting boolean value</returns>
         public static bool ToBoolean(string value)
         {
-            if (value != null)
-            {
-                value = value.Trim();
+            if (value == null) return false;
 
-                if (value.Length > 0)
-                {
-                    // Numeric convert
-                    float f;
-                    if (float.TryParse(value, out f))
-                    {
-                        return (f != 0);
-                    }
-                    else
-                    {
-                        value = value.ToLower();
-                        return ("true".Equals(value));
-                    }
-                }
-            }
+            value = value.Trim();
+            if (value.Length <= 0) return false;
 
-            return false;
+            // Numeric conversion
+            if (float.TryParse(value, out var f)) return !ApproxEquals(f, 0);
+
+            // Boolean conversion
+            value = value.ToLower();
+            return "true".Equals(value);
         }
 
         /// <summary>
@@ -336,7 +341,7 @@ namespace Commons
             char[] encodedDataChar = new char[encodedData.Length];
             Latin1Encoding.GetChars(encodedData, 0, encodedData.Length, encodedDataChar, 0); // Optimized for large data
 
-            return System.Convert.FromBase64CharArray(encodedDataChar, 0, encodedDataChar.Length);
+            return Convert.FromBase64CharArray(encodedDataChar, 0, encodedDataChar.Length);
         }
 
         /// <summary>
@@ -359,7 +364,7 @@ namespace Commons
 
             char[] dataChar = new char[arrayLength];
 
-            System.Convert.ToBase64CharArray(data, 0, data.Length, dataChar, 0);
+            Convert.ToBase64CharArray(data, 0, data.Length, dataChar, 0);
 
             return Utils.Latin1Encoding.GetBytes(dataChar);
         }
@@ -377,17 +382,17 @@ namespace Commons
         /// <returns>True if the string is a digital value; false if not</returns>
         public static bool IsNumeric(string s, bool allowsOnlyIntegers = false, bool allowsSigned = true)
         {
-            if ((null == s) || (0 == s.Length)) return false;
+            if (string.IsNullOrEmpty(s)) return false;
 
-            for (int i = 0; i < s.Length; i++)
+            foreach (var t in s)
             {
-                if ((s[i] == '.') || (s[i] == ','))
+                if (t == '.' || t == ',')
                 {
                     if (allowsOnlyIntegers) return false;
                 }
                 else
                 {
-                    if (!(char.IsDigit(s[i]) || (allowsSigned && s[i] == '-'))) return false;
+                    if (!(char.IsDigit(t) || (allowsSigned && t == '-'))) return false;
                 }
             }
 
@@ -401,7 +406,35 @@ namespace Commons
         /// <returns>True if char is between 0..9; false instead</returns>
         public static bool IsDigit(char c)
         {
-            return (c >= '0' && c <= '9');
+            return c >= '0' && c <= '9';
+        }
+
+        /// <summary>
+        /// Returns the first successive series of digits converted to integer
+        /// NB : Doesn't detect negative integers ('-' char is ignored)
+        /// </summary>
+        /// <param name="s">String to extract the integer from</param>
+        /// <returns>First successive series of digits of the given string converted to integer; -1 if nothing found</returns>
+        public static int ParseFirstIntegerPart(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return -1;
+
+            bool insideInt = false;
+            StringBuilder sb = new StringBuilder();
+            foreach (var t in s)
+            {
+                if (IsDigit(t))
+                {
+                    if (!insideInt) insideInt = true;
+                    sb.Append(t);
+                }
+                else
+                {
+                    if (insideInt) break;
+                }
+            }
+
+            return sb.Length > 0 ? int.Parse(sb.ToString()) : -1;
         }
 
         /// <summary>
@@ -411,19 +444,41 @@ namespace Commons
         /// <returns>True if the string is a hexadecimal notation; false if not</returns>
         public static bool IsHex(string s)
         {
-            if ((null == s) || (0 == s.Length)) return false;
+            if (string.IsNullOrEmpty(s)) return false;
+            if (1 == s.Length % 2) return false; // Hex notation always uses two characters for every byte
 
-            if (s.Length % 2 > 0) return false; // Hex notation always uses two characters for every byte
-
-            char c;
-
-            for (int i = 0; i < s.Length; i++)
+            foreach (var t in s)
             {
-                c = char.ToUpper(s[i]);
+                var c = char.ToUpper(t);
                 if (!char.IsDigit(c) && c != 'A' && c != 'B' && c != 'C' && c != 'D' && c != 'E' && c != 'F') return false;
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Parse the given string into an array of bytes, decoding the given string as an hexadecimal value
+        /// </summary>
+        /// <param name="s">String to be parsed</param>
+        /// <returns>Parsed value; empty array if a parsing issue has been encountered</returns>
+        public static byte[] ParseHex(string s)
+        {
+            if (!IsHex(s)) return Array.Empty<byte>();
+
+            byte[] arr = new byte[s.Length >> 1];
+            for (int i = 0; i < s.Length >> 1; ++i)
+            {
+                arr[i] = (byte)((getHexVal(s[i << 1]) << 4) + getHexVal(s[(i << 1) + 1]));
+            }
+
+            return arr;
+        }
+
+        public static int getHexVal(char hex)
+        {
+            int val = (byte)hex;
+            var letters = val < 97 ? 55 : 87;
+            return val - (val < 58 ? 48 : letters);
         }
 
         /// <summary>
@@ -438,14 +493,13 @@ namespace Commons
             string[] parts = s.Split(new char[] { ',', '.' });
 
             if (parts.Length > 2) return 0;
-            else if (1 == parts.Length) return double.Parse(s);
-            else // 2 == parts.Length
-            {
-                double decimalDivisor = Math.Pow(10, parts[1].Length);
-                double result = double.Parse(parts[0]);
-                if (result >= 0) return result + double.Parse(parts[1]) / decimalDivisor;
-                else return result - double.Parse(parts[1]) / decimalDivisor;
-            }
+            if (1 == parts.Length) return double.Parse(s);
+
+            // Other possibilities : 2 == parts.Length
+            double decimalDivisor = Math.Pow(10, parts[1].Length);
+            double result = double.Parse(parts[0]);
+            if (result >= 0) return result + double.Parse(parts[1]) / decimalDivisor;
+            return result - double.Parse(parts[1]) / decimalDivisor;
         }
 
         /// <summary>
@@ -458,34 +512,34 @@ namespace Commons
         public static string GetBytesReadable(long i)
         {
             // Get absolute value
-            long absolute_i = (i < 0 ? -i : i);
+            long absolute_i = i < 0 ? -i : i;
             // Determine the suffix and readable value
             string suffix;
             double readable;
             if (absolute_i >= 0x1000000000000000) // Exabyte
             {
                 suffix = "EB";
-                readable = (i >> 50);
+                readable = i >> 50;
             }
             else if (absolute_i >= 0x4000000000000) // Petabyte
             {
                 suffix = "PB";
-                readable = (i >> 40);
+                readable = i >> 40;
             }
             else if (absolute_i >= 0x10000000000) // Terabyte
             {
                 suffix = "TB";
-                readable = (i >> 30);
+                readable = i >> 30;
             }
             else if (absolute_i >= 0x40000000) // Gigabyte
             {
                 suffix = "GB";
-                readable = (i >> 20);
+                readable = i >> 20;
             }
             else if (absolute_i >= 0x100000) // Megabyte
             {
                 suffix = "MB";
-                readable = (i >> 10);
+                readable = i >> 10;
             }
             else if (absolute_i >= 0x400) // Kilobyte
             {
@@ -497,7 +551,7 @@ namespace Commons
                 return i.ToString("0 B"); // Byte
             }
             // Divide by 1024 to get fractional value
-            readable = (readable / 1024);
+            readable = readable / 1024;
             // Return formatted number with suffix
             return readable.ToString("0.## ") + suffix;
         }
@@ -519,7 +573,7 @@ namespace Commons
             cdet.Feed(s);
             cdet.DataEnd();
             if (cdet.Charset != null) return getEncodingCached(cdet.Charset);
-            else return Settings.DefaultTextEncoding;
+            return Settings.DefaultTextEncoding;
         }
 
         /// <summary>
@@ -537,10 +591,10 @@ namespace Commons
                 Console.WriteLine(e.StackTrace);
                 if (e.InnerException != null)
                 {
-                    Console.WriteLine("Inner Exception BEGIN");
+                    Console.WriteLine(@"Inner Exception BEGIN");
                     Console.WriteLine(e.InnerException.Message);
                     Console.WriteLine(e.InnerException.StackTrace);
-                    Console.WriteLine("Inner Exception END");
+                    Console.WriteLine(@"Inner Exception END");
                 }
             }
             LogDelegator.GetLogDelegate()(level, e.Message);
@@ -552,6 +606,34 @@ namespace Commons
                 LogDelegator.GetLogDelegate()(level, e.InnerException.StackTrace);
                 LogDelegator.GetLogDelegate()(level, "Inner Exception END");
             }
+        }
+
+        /// <summary>
+        /// Indicate whether the given double is approiximately equal to the given value
+        /// (tolerance is 0.001)
+        /// </summary>
+        /// <param name="f">Double to compare</param>
+        /// <param name="val">Value to compare to</param>
+        /// <returns>True if both values are approximately equal; false if not</returns>
+        public static bool ApproxEquals(double f, int val)
+        {
+            return Math.Abs(f - val) < 0.001;
+        }
+
+        /// <summary>
+        /// Generate a long random positive number between the given limits, using the given generator
+        /// </summary>
+        /// <param name="min">Lower limit (included; must be positive) - default : 0</param>
+        /// <param name="max">Higher limit (included; must be positive) - default : long.MaxValue</param>
+        /// <param name="rand"></param>
+        /// <returns></returns>
+        public static ulong LongRandom(Random rand, long min = 0, long max = long.MaxValue)
+        {
+            byte[] buf = new byte[8];
+            rand.NextBytes(buf);
+            long longRand = BitConverter.ToInt64(buf, 0);
+
+            return (ulong)(Math.Abs(longRand % (max - min)) + min);
         }
     }
 }

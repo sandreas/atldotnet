@@ -1,5 +1,4 @@
 ﻿using ATL.AudioData.IO;
-using Commons;
 using System;
 using System.IO;
 using static ATL.ChannelsArrangements;
@@ -36,6 +35,7 @@ namespace ATL.AudioData
             /// </summary>
             public void Reset()
             {
+                Offset = -1;
                 StreamMarker = new byte[4];
                 Array.Clear(MetaDataBlockHeader, 0, 4);
                 Array.Clear(Info, 0, 18);
@@ -47,11 +47,19 @@ namespace ATL.AudioData
             /// <param name="source">Stream to read data from</param>
             public void fromStream(Stream source)
             {
-                source.Read(StreamMarker, 0, 4);
-                source.Read(MetaDataBlockHeader, 0, 4);
-                source.Read(Info, 0, 18); // METADATA_BLOCK_STREAMINFO
-                source.Seek(16, SeekOrigin.Current); // MD5 sum for audio data
+                Offset = source.Position;
+                if (source.Read(StreamMarker, 0, 4) < 4) return;
+                if (source.Read(MetaDataBlockHeader, 0, 4) < 4) return;
+                // METADATA_BLOCK_STREAMINFO
+                if (source.Read(Info, 0, 18) < 18) return;
+                // MD5 sum for audio data
+                source.Seek(16, SeekOrigin.Current);
             }
+
+            /// <summary>
+            /// Offset of the header
+            /// </summary>
+            public long Offset { get; private set; }
 
             /// <summary>
             /// True if the header has valid data; false if it doesn't
@@ -88,23 +96,25 @@ namespace ATL.AudioData
 
             /// <summary>
             /// Returns true if the metadata block exists; false if it doesn't
+            /// NB : We're testing if the very first metadata block we're into (STREAMINFO) is the last one
+            /// If it isn't, it means there are other metadata blocks.
             /// </summary>
-            public bool MetadataExists { get => 0 == (MetaDataBlockHeader[1] & FLAG_LAST_METADATA_BLOCK); }
+            public bool MetadataExists => 0 == (MetaDataBlockHeader[1] & FLAG_LAST_METADATA_BLOCK);
 
             /// <summary>
             /// Sample rate
             /// </summary>
-            public int SampleRate { get => Info[10] << 12 | Info[11] << 4 | Info[12] >> 4; }
+            public int SampleRate => Info[10] << 12 | Info[11] << 4 | Info[12] >> 4;
 
             /// <summary>
             /// Bits per sample
             /// </summary>
-            public byte BitsPerSample { get => (byte)(((Info[12] & 1) << 4) | (Info[13] >> 4) + 1); }
+            public byte BitsPerSample => (byte)(((Info[12] & 1) << 4) | (Info[13] >> 4) + 1);
 
             /// <summary>
             /// Number of samples
             /// </summary>
-            public long NbSamples { get => Info[14] << 24 | Info[15] << 16 | Info[16] << 8 | Info[17]; }
+            public long NbSamples => Info[14] << 24 | Info[15] << 16 | Info[16] << 8 | Info[17];
         }
 
         public static bool IsValidHeader(byte[] data)

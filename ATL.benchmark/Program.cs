@@ -1,7 +1,10 @@
 ﻿using BenchmarkDotNet.Running;
 using Commons;
 using System;
+using System.Diagnostics.Metrics;
 using System.IO;
+using ATL.Playlist;
+using ATL.AudioData;
 
 namespace ATL.benchmark
 {
@@ -25,13 +28,11 @@ namespace ATL.benchmark
 
             //browseFor(@"E:\Music\", "*.mp3");
 
-            //writeAt(@"D:\temp\wav\broadcastwave_bext_info.wav");
-
             //info(@"D:\temp\wav\74\empty_tagged_audacity.wav");
 
             //browseForMultithread(@"E:\temp\m4a-mp4\issue 70", "*.*", 4);
 
-            info(@"D:\temp\wav\185\Largo.WAV");
+            //info(@"D:\temp\wav\185\Largo.WAV");
 
             //reduce(@"D:\temp\m4a-mp4\160\2tracks_TestFromABC-Orig.m4a");
 
@@ -88,7 +89,7 @@ namespace ATL.benchmark
             Console.ReadLine();
         }
 
-        static private void writeOnTmpResource(String fileName)
+        static private void writeOnTmpResource(string fileName)
         {
             Writing w = new Writing();
             w.Setup(fileName);
@@ -98,7 +99,7 @@ namespace ATL.benchmark
             Console.ReadLine();
         }
 
-        static private void writeAt(String filePath)
+        static private void writeAt(string filePath)
         {
             string testFileLocation = TestUtils.GenerateTempTestFile(filePath);
             try
@@ -123,22 +124,32 @@ namespace ATL.benchmark
             }
         }
 
-        static private void reduce(String filePath)
+        static private void reduce(string filePath)
         {
+            new ConsoleLogger();
             new Reduce().reduce(filePath);
+            Console.ReadLine();
         }
 
-        static private void info(String filePath)
+        static private void info(string filePath)
         {
             new ConsoleLogger();
             Console.WriteLine(">>> INFO : BEGIN @ " + filePath);
 
             Track t = new Track(filePath);
 
-            Console.WriteLine(t.Path + "......." + Utils.EncodeTimecode_s(t.Duration) + " | " + t.SampleRate + " (" + t.Bitrate + " kpbs" + (t.IsVBR ? " VBR)" : ")" + " " + t.ChannelsArrangement));
+            Console.WriteLine(t.AudioFormat.ID);
+
+            Console.WriteLine(t.Path + "......." + t.AudioFormat.Name + " | " + Utils.EncodeTimecode_s(t.Duration) + " | " + t.SampleRate + " (" + t.Bitrate + " kpbs" + (t.IsVBR ? " VBR)" : ")" + " " + t.ChannelsArrangement));
             Console.WriteLine(Utils.BuildStrictLengthString("", t.Path.Length, '.') + ".......disc " + t.DiscNumber + " | track " + t.TrackNumber + " | title " + t.Title + " | artist " + t.Artist + " | album " + t.Album + " | year " + t.Year);
 
             Console.WriteLine("images : " + t.EmbeddedPictures.Count);
+
+            Console.WriteLine("AdditionalFields");
+            foreach (var field in t.AdditionalFields)
+            {
+                Console.WriteLine("  " + field.Key + " = " + field.Value);
+            }
 
             Console.WriteLine(">>> INFO : END");
 

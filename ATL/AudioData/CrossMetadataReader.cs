@@ -13,30 +13,30 @@ namespace ATL.AudioData
     /// Rule : The first non-empty field of the most prioritized tag becomes the "cross-detected" field
     /// There is no "field blending" across collections (pictures, additional fields) : the first non-empty collection is kept
     /// </summary>
-    internal class CrossMetadataReader : IMetaDataIO
+    internal partial class CrossMetadataReader : IMetaDataIO
     {
         // Contains all IMetaDataIO objects to be read, in priority order (index [0] is the most important)
-        private readonly IList<IMetaDataIO> metaReaders = null;
+        private readonly IList<IMetaDataIO> metaReaders;
 
         public CrossMetadataReader(AudioDataManager audioManager, MetaDataIOFactory.TagType[] tagPriority)
         {
             metaReaders = new List<IMetaDataIO>();
 
-            for (int i = 0; i < tagPriority.Length; i++)
+            foreach (var t in tagPriority)
             {
-                if ((MetaDataIOFactory.TagType.NATIVE == tagPriority[i]) && (audioManager.HasNativeMeta()) && (audioManager.NativeTag != null))
+                if (MetaDataIOFactory.TagType.NATIVE == t && audioManager.HasNativeMeta() && audioManager.NativeTag != null)
                 {
                     metaReaders.Add(audioManager.NativeTag);
                 }
-                if ((MetaDataIOFactory.TagType.ID3V1 == tagPriority[i]) && (audioManager.ID3v1.Exists))
+                if (MetaDataIOFactory.TagType.ID3V1 == t && audioManager.ID3v1.Exists)
                 {
                     metaReaders.Add(audioManager.ID3v1);
                 }
-                if ((MetaDataIOFactory.TagType.ID3V2 == tagPriority[i]) && (audioManager.ID3v2.Exists))
+                if (MetaDataIOFactory.TagType.ID3V2 == t && audioManager.ID3v2.Exists)
                 {
                     metaReaders.Add(audioManager.ID3v2);
                 }
-                if ((MetaDataIOFactory.TagType.APE == tagPriority[i]) && (audioManager.APEtag.Exists))
+                if (MetaDataIOFactory.TagType.APE == t && audioManager.APEtag.Exists)
                 {
                     metaReaders.Add(audioManager.APEtag);
                 }
@@ -44,10 +44,8 @@ namespace ATL.AudioData
         }
 
         /// <inheritdoc/>
-        public bool Exists
-        {
-            get { return metaReaders.Count > 0; }
-        }
+        public bool Exists => metaReaders.Count > 0;
+
         /// <inheritdoc/>
         public IList<Format> MetadataFormats
         {
@@ -65,11 +63,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String Title
+        public string Title
         {
             get
             {
-                String title = "";
+                string title = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     title = reader.Title;
@@ -79,11 +77,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String Artist
+        public string Artist
         {
             get
             {
-                String artist = "";
+                string artist = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     artist = reader.Artist;
@@ -93,11 +91,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String Composer
+        public string Composer
         {
             get
             {
-                String composer = "";
+                string composer = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     composer = reader.Composer;
@@ -107,11 +105,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String Comment
+        public string Comment
         {
             get
             {
-                String comment = "";
+                string comment = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     comment = reader.Comment;
@@ -121,11 +119,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String Genre
+        public string Genre
         {
             get
             {
-                String genre = "";
+                string genre = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     genre = reader.Genre;
@@ -217,7 +215,32 @@ namespace ATL.AudioData
                 return false;
             }
         }
-
+        /// <inheritdoc/>
+        public DateTime OriginalReleaseDate
+        {
+            get
+            {
+                DateTime date = DateTime.MinValue;
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    date = reader.OriginalReleaseDate;
+                    if (date != DateTime.MinValue) break;
+                }
+                return date;
+            }
+        }
+        /// <inheritdoc/>
+        public bool IsOriginalReleaseDateYearOnly
+        {
+            get
+            {
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    if (reader.OriginalReleaseDate != DateTime.MinValue) return reader.IsOriginalReleaseDateYearOnly;
+                }
+                return false;
+            }
+        }
         /// <inheritdoc/>
         public string Album
         {
@@ -233,11 +256,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-		public String Copyright
+		public string Copyright
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.Copyright;
@@ -247,11 +270,25 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-		public String AlbumArtist
+        public string Language
         {
             get
             {
-                String result = "";
+                string result = "";
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.Language;
+                    if (result != "") break;
+                }
+                return result;
+            }
+        }
+        /// <inheritdoc/>
+		public string AlbumArtist
+        {
+            get
+            {
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.AlbumArtist;
@@ -261,11 +298,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String Conductor
+        public string Conductor
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.Conductor;
@@ -275,11 +312,39 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String Publisher
+        public string Lyricist
         {
             get
             {
-                String result = "";
+                string result = "";
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.Lyricist;
+                    if (result != "") break;
+                }
+                return result;
+            }
+        }
+        /// <inheritdoc/>
+        public string InvolvedPeople
+        {
+            get
+            {
+                string result = "";
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.InvolvedPeople;
+                    if (result != "") break;
+                }
+                return result;
+            }
+        }
+        /// <inheritdoc/>
+        public string Publisher
+        {
+            get
+            {
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.Publisher;
@@ -303,11 +368,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String GeneralDescription
+        public string GeneralDescription
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.GeneralDescription;
@@ -317,11 +382,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String OriginalArtist
+        public string OriginalArtist
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.OriginalArtist;
@@ -331,11 +396,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String OriginalAlbum
+        public string OriginalAlbum
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.OriginalAlbum;
@@ -345,11 +410,11 @@ namespace ATL.AudioData
             }
         }
         /// <inheritdoc/>
-        public String ProductId
+        public string ProductId
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.ProductId;
@@ -358,11 +423,54 @@ namespace ATL.AudioData
                 return result;
             }
         }
+        /// <inheritdoc/>
+        public string ISRC
+        {
+            get
+            {
+                string result = "";
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.ISRC;
+                    if (result != "") break;
+                }
+                return result;
+            }
+        }
+        /// <inheritdoc/>
+        public string CatalogNumber
+        {
+            get
+            {
+                string result = "";
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.CatalogNumber;
+                    if (result != "") break;
+                }
+                return result;
+            }
+        }
+        /// <inheritdoc/>
+        public string AudioSourceUrl
+        {
+            get
+            {
+                string result = "";
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.AudioSourceUrl;
+                    if (result != "") break;
+                }
+                return result;
+            }
+        }
+        /// <inheritdoc/>
         public string SortAlbum
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.SortAlbum;
@@ -371,12 +479,12 @@ namespace ATL.AudioData
                 return result;
             }
         }
-
+        /// <inheritdoc/>
         public string SortAlbumArtist
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.SortAlbumArtist;
@@ -385,12 +493,12 @@ namespace ATL.AudioData
                 return result;
             }
         }
-
+        /// <inheritdoc/>
         public string SortArtist
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.SortArtist;
@@ -399,12 +507,12 @@ namespace ATL.AudioData
                 return result;
             }
         }
-
+        /// <inheritdoc/>
         public string SortTitle
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.SortTitle;
@@ -413,12 +521,12 @@ namespace ATL.AudioData
                 return result;
             }
         }
-
+        /// <inheritdoc/>
         public string Group
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.Group;
@@ -427,12 +535,12 @@ namespace ATL.AudioData
                 return result;
             }
         }
-
+        /// <inheritdoc/>
         public string SeriesTitle
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.SeriesTitle;
@@ -441,12 +549,12 @@ namespace ATL.AudioData
                 return result;
             }
         }
-
+        /// <inheritdoc/>
         public string SeriesPart
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.SeriesPart;
@@ -455,12 +563,12 @@ namespace ATL.AudioData
                 return result;
             }
         }
-
+        /// <inheritdoc/>
         public string LongDescription
         {
             get
             {
-                String result = "";
+                string result = "";
                 foreach (IMetaDataIO reader in metaReaders)
                 {
                     result = reader.LongDescription;
@@ -469,7 +577,51 @@ namespace ATL.AudioData
                 return result;
             }
         }
+        /// <inheritdoc/>
+        public int? BPM
+        {
+            get
+            {
+                int? result = null;
+                if (!Settings.NullAbsentValues) result = 0;
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.BPM;
+                    if (result.HasValue && (Settings.NullAbsentValues || result.Value > 0)) break;
+                }
+                return result;
+            }
+        }
+        /// <inheritdoc/>
+        public string EncodedBy
+        {
+            get
+            {
+                string result = "";
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.EncodedBy;
+                    if (result != "") break;
+                }
 
+                return result;
+            }
+        }
+        /// <inheritdoc/>
+        public string Encoder
+        {
+            get
+            {
+                string result = "";
+                foreach (IMetaDataIO reader in metaReaders)
+                {
+                    result = reader.Encoder;
+                    if (result != "") break;
+                }
+
+                return result;
+            }
+        }
         /// <inheritdoc/>
         public float? Popularity
         {
@@ -550,7 +702,7 @@ namespace ATL.AudioData
         {
             get
             {
-                IMetaDataIO reader = metaReaders.FirstOrDefault(r => r.Lyrics != null);
+                IMetaDataIO reader = metaReaders.FirstOrDefault(r => r.Lyrics != null && r.Lyrics.Exists());
                 if (reader != null) return new LyricsInfo(reader.Lyrics);
                 return new LyricsInfo();
             }
@@ -584,9 +736,8 @@ namespace ATL.AudioData
         public bool Read(Stream source, MetaDataIO.ReadTagParams readTagParams) { throw new NotImplementedException(); }
 
         /// <inheritdoc/>
-        public bool Write(Stream s, TagData tag, Action<float> writeProgress = null) { throw new NotImplementedException(); }
-
-        public Task<bool> WriteAsync(Stream s, TagData tag, IProgress<float> writeProgress = null)
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
+        public Task<bool> WriteAsync(Stream s, TagData tag, ProgressToken<float> writeProgress = null)
         {
             throw new NotImplementedException();
         }

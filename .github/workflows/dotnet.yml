@@ -11,46 +11,43 @@ on:
 
 jobs:
   build:
-
     runs-on: windows-2022
-
+        
     steps:
     - uses: actions/checkout@v3
-    - name: Java 11
+    - name: Java 17
       uses: actions/setup-java@v3
       with:
         distribution: 'temurin'
-        java-version: '11'
+        java-version: '17'
     - name: Install SonarScanner
-      run: choco install "sonarscanner-msbuild-net46" -y
+      #run: choco install "sonarscanner-msbuild-net50" -y
+      run: dotnet tool install --global dotnet-sonarscanner
     - name: Setup .NET
       uses: actions/setup-dotnet@v3
       with:
        dotnet-version: 6.0.x
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore ATL.unit-test
     - name: Run SonarScanner
-      run: SonarScanner.MSBuild.exe begin /k:"Zeugma440_atldotnet" /o:"zeugma440-github" /d:"sonar.host.url=https://sonarcloud.io" /d:"sonar.login=bec4b9622d9d1f065adeadfb0b02c4f272bf2e7a"  /d:sonar.sourceEncoding="UTF-8" /d:sonar.cs.opencover.reportsPaths="ATL.test/lcov.info"
-    - name: Build ATL
-      run: dotnet build ATL --no-restore
-    - name: Build ATL.test
-      run: dotnet build ATL.test --no-restore
+      run: dotnet sonarscanner begin /k:"Zeugma440_atldotnet" /o:"zeugma440-github" /d:"sonar.host.url=https://sonarcloud.io" /d:"sonar.token=${{ secrets.SONAR_TOKEN }}"  /d:sonar.sourceEncoding="UTF-8" /d:sonar.cs.opencover.reportsPaths="${GITHUB_WORKSPACE}/ATL.unit-test/lcov.info"
+  
     - name: Test
-      run: dotnet test ATL.test --no-build --verbosity normal
+      run: dotnet test ATL.unit-test --verbosity normal --results-directory "TestResults"
     - name: Coverlet coverage test
       uses: b3b00/coverlet-action@1.2.5
       with:
-        testProject: 'ATL.test/ATL.test.csproj'
+        testProject: 'ATL.unit-test/ATL.unit-test.csproj'
         output: 'lcov.info'
         outputFormat: 'opencover'
         excludes: '[program]*,[test]test.*'
         threshold: 80
-    - name: CodeCov
-      uses: codecov/codecov-action@v3
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: lcov.info
-        fail_ci_if_error: true # optional (default = false)
-        verbose: true # optional (default = false)
+#    - name: CodeCov
+#      uses: codecov/codecov-action@v3
+#      with:
+#        token: ${{ secrets.CODECOV_TOKEN }}
+#        files: ${{steps.coverlet.outputs.coverageFile}} 
+#        fail_ci_if_error: true # optional (default = false)
+#        verbose: true # optional (default = false)
     - name: Upload to SonarScanner
-      run : SonarScanner.MSBuild.exe end /d:"sonar.login=bec4b9622d9d1f065adeadfb0b02c4f272bf2e7a"
+      run : dotnet sonarscanner end /d:"sonar.token=${{ secrets.SONAR_TOKEN }}"

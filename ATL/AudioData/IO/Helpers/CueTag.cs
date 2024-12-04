@@ -26,28 +26,28 @@ namespace ATL.AudioData.IO
             byte[] data = new byte[256];
 
             // Num cue points
-            int numCuePoints = WavHelper.readInt32(source, meta, "cue.NumCuePoints", data, readTagParams.ReadAllMetaFrames);
+            int numCuePoints = WavHelper.ReadInt32(source, meta, "cue.NumCuePoints", data, readTagParams.ReadAllMetaFrames);
 
             for (int i = 0; i < numCuePoints; i++)
             {
                 // Cue point ID
-                WavHelper.readInt32(source, meta, "cue.CuePoints[" + i + "].CuePointId", data, readTagParams.ReadAllMetaFrames);
+                WavHelper.ReadInt32(source, meta, "cue.CuePoints[" + i + "].CuePointId", data, readTagParams.ReadAllMetaFrames);
 
                 // Play order position
-                WavHelper.readInt32(source, meta, "cue.CuePoints[" + i + "].Position", data, readTagParams.ReadAllMetaFrames);
+                WavHelper.ReadInt32(source, meta, "cue.CuePoints[" + i + "].Position", data, readTagParams.ReadAllMetaFrames);
 
                 // RIFF ID of corresponding data chunk
-                source.Read(data, 0, 4);
+                if (source.Read(data, 0, 4) < 4) return;
                 meta.SetMetaField("cue.CuePoints[" + i + "].DataChunkId", Utils.Latin1Encoding.GetString(data, 0, 4), readTagParams.ReadAllMetaFrames);
 
                 // Byte Offset of Data Chunk
-                WavHelper.readInt32(source, meta, "cue.CuePoints[" + i + "].ChunkStart", data, readTagParams.ReadAllMetaFrames);
+                WavHelper.ReadInt32(source, meta, "cue.CuePoints[" + i + "].ChunkStart", data, readTagParams.ReadAllMetaFrames);
 
                 // Byte Offset to sample of First Channel
-                WavHelper.readInt32(source, meta, "cue.CuePoints[" + i + "].BlockStart", data, readTagParams.ReadAllMetaFrames);
+                WavHelper.ReadInt32(source, meta, "cue.CuePoints[" + i + "].BlockStart", data, readTagParams.ReadAllMetaFrames);
 
                 // Byte Offset to sample byte of First Channel
-                WavHelper.readInt32(source, meta, "cue.CuePoints[" + i + "].SampleOffset", data, readTagParams.ReadAllMetaFrames);
+                WavHelper.ReadInt32(source, meta, "cue.CuePoints[" + i + "].SampleOffset", data, readTagParams.ReadAllMetaFrames);
             }
         }
 
@@ -56,7 +56,7 @@ namespace ATL.AudioData.IO
         /// </summary>
         /// <param name="meta">Metadata I/O to test with</param>
         /// <returns>True if the given Metadata I/O contains data relevant to the Cue-points format; false if it doesn't</returns>
-        public static bool IsDataEligible(MetaDataIO meta)
+        public static bool IsDataEligible(MetaDataHolder meta)
         {
             return WavHelper.IsDataEligible(meta, "cue.");
         }
@@ -68,7 +68,7 @@ namespace ATL.AudioData.IO
         /// <param name="isLittleEndian">Endianness to write the size headers with</param>
         /// <param name="meta">Metadata to write</param>
         /// <returns>The number of written fields</returns>
-        public static int ToStream(BinaryWriter w, bool isLittleEndian, MetaDataIO meta)
+        public static int ToStream(BinaryWriter w, bool isLittleEndian, MetaDataHolder meta)
         {
             IDictionary<string, string> additionalFields = meta.AdditionalFields;
             w.Write(Utils.Latin1Encoding.GetBytes(CHUNK_CUE));
@@ -79,18 +79,18 @@ namespace ATL.AudioData.IO
             // == Cue points list
 
             // How many of them do we have ? -> count distinct indexes
-            IList<string> keys = WavHelper.getEligibleKeys("cue.CuePoints", additionalFields.Keys);
+            IList<string> keys = WavHelper.GetEligibleKeys("cue.CuePoints", additionalFields.Keys);
             w.Write(keys.Count);
 
             // Cue points data
             foreach (string key in keys)
             {
-                WavHelper.writeFieldIntValue(key + ".CuePointId", additionalFields, w, 0);
-                WavHelper.writeFieldIntValue(key + ".Position", additionalFields, w, 0);
+                WavHelper.WriteFieldIntValue(key + ".CuePointId", additionalFields, w, 0);
+                WavHelper.WriteFieldIntValue(key + ".Position", additionalFields, w, 0);
                 w.Write(Utils.Latin1Encoding.GetBytes(additionalFields[key + ".DataChunkId"]));
-                WavHelper.writeFieldIntValue(key + ".ChunkStart", additionalFields, w, 0);
-                WavHelper.writeFieldIntValue(key + ".BlockStart", additionalFields, w, 0);
-                WavHelper.writeFieldIntValue(key + ".SampleOffset", additionalFields, w, 0);
+                WavHelper.WriteFieldIntValue(key + ".ChunkStart", additionalFields, w, 0);
+                WavHelper.WriteFieldIntValue(key + ".BlockStart", additionalFields, w, 0);
+                WavHelper.WriteFieldIntValue(key + ".SampleOffset", additionalFields, w, 0);
             }
 
             // Add the extra padding byte if needed

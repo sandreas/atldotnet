@@ -36,7 +36,7 @@ namespace ATL.AudioData.IO
         public const string CHUNK_PADDING = "free";
 
         // Mapping between CAF channels layout codes and ATL ChannelsArrangement
-        private static Dictionary<uint, ChannelsArrangement> channelsMapping = new Dictionary<uint, ChannelsArrangement>() {
+        private static readonly Dictionary<uint, ChannelsArrangement> channelsMapping = new Dictionary<uint, ChannelsArrangement>() {
             { (100 << 16) | 1, MONO },
             { (101 << 16) | 2, STEREO },
             { (102 << 16) | 2, STEREO }, // Stereo / headphone playback
@@ -86,25 +86,25 @@ namespace ATL.AudioData.IO
             { (146 << 16) | 21, TMH_10_2_FULL }
         };
 
-        // Mapping between CAF format ID and format names
-        private static Dictionary<string, KeyValuePair<int, string>> formatsMapping = new Dictionary<string, KeyValuePair<int, string>>()
+        // Mapping between CAF format ID, ATL format ID and custom format names
+        private static readonly Dictionary<string, KeyValuePair<int, string>> formatsMapping = new Dictionary<string, KeyValuePair<int, string>>()
         {
-            { "none", new KeyValuePair<int, string>(0,"") },
-            { "lpcm", new KeyValuePair<int, string>(1,"Linear PCM") },
-            { "ima4", new KeyValuePair<int, string>(2,"Apple IMA 4:1 ADPCM") },
-            { "aac ", new KeyValuePair<int, string>(3,"MPEG-4 AAC") },
-            { "MAC3", new KeyValuePair<int, string>(4,"MACE 3:1") },
-            { "MAC6", new KeyValuePair<int, string>(5,"MACE 6:1") },
-            { "ulaw", new KeyValuePair<int, string>(6,"μLaw 2:1") },
-            { "alaw", new KeyValuePair<int, string>(7,"aLaw 2:1") },
-            { ".mp1", new KeyValuePair<int, string>(8,"MPEG-1 or 2, Layer 1") },
-            { ".mp2", new KeyValuePair<int, string>(9,"MPEG-1 or 2, Layer 2") },
-            { ".mp3", new KeyValuePair<int, string>(10,"MPEG-1 or 2, Layer 3") },
-            { "alac", new KeyValuePair<int, string>(11,"Apple Lossless") }
+            { "none", new KeyValuePair<int, string>(Format.UNKNOWN_FORMAT.ID,"") },
+            { "lpcm", new KeyValuePair<int, string>(AudioDataIOFactory.CID_WAV,"Linear PCM") },
+            { "ima4", new KeyValuePair<int, string>(AudioDataIOFactory.CID_WAV,"Apple IMA 4:1 ADPCM") },
+            { "aac ", new KeyValuePair<int, string>(AudioDataIOFactory.CID_AAC, "MPEG-4 AAC") },
+            { "MAC3", new KeyValuePair<int, string>(Format.UNKNOWN_FORMAT.ID,"MACE 3:1") }, // Macintosh Audio Compression
+            { "MAC6", new KeyValuePair<int, string>(Format.UNKNOWN_FORMAT.ID, "MACE 6:1") },
+            { "ulaw", new KeyValuePair<int, string>(AudioDataIOFactory.CID_WAV,"μLaw 2:1") },
+            { "alaw", new KeyValuePair<int, string>(AudioDataIOFactory.CID_WAV,"aLaw 2:1") },
+            { ".mp1", new KeyValuePair<int, string>(AudioDataIOFactory.CID_MPEG,"MPEG-1 or 2, Layer 1") },
+            { ".mp2", new KeyValuePair<int, string>(AudioDataIOFactory.CID_MPEG,"MPEG-1 or 2, Layer 2") },
+            { ".mp3", new KeyValuePair<int, string>(AudioDataIOFactory.CID_MPEG,"MPEG-1 or 2, Layer 3") },
+            { "alac", new KeyValuePair<int, string>(AudioDataIOFactory.CID_MP4,"Apple Lossless") }
         };
 
         // Mapping between CAF information keys and ATL frame codes
-        private static Dictionary<string, Field> frameMapping = new Dictionary<string, Field>() {
+        private static readonly Dictionary<string, Field> frameMapping = new Dictionary<string, Field>() {
             { "artist", Field.ARTIST },
             { "album", Field.ALBUM },
             { "track number", Field.TRACK_NUMBER },
@@ -119,75 +119,43 @@ namespace ATL.AudioData.IO
 
 
         // Private declarations 
-        private Format containerAudioFormat;
-        private KeyValuePair<int, string> containeeAudioFormat;
+        private AudioFormat audioFormat;
 
         private uint sampleRate;
         private bool isVbr;
-        private int codecFamily;
 
-        private double bitrate;
-        private double duration;
         private uint channelsPerFrame;
         private uint bitsPerChannel;
         double secondsPerByte;
-        private ChannelsArrangement channelsArrangement;
-
-        private readonly string filePath;
 
 
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
 
-        public bool IsVBR
-        {
-            get { return isVbr; }
-        }
-        public Format AudioFormat
-        {
-            get
-            {
-                containerAudioFormat = new Format(containerAudioFormat);
-                containerAudioFormat.Name += " / " + containeeAudioFormat.Value;
-                containerAudioFormat.ID += containeeAudioFormat.Key;
-                return containerAudioFormat;
-            }
-        }
-        public int CodecFamily
-        {
-            get { return codecFamily; }
-        }
-        public string FileName
-        {
-            get { return filePath; }
-        }
-        public double BitRate
-        {
-            get { return bitrate; }
-        }
+        public bool IsVBR => isVbr;
+
+        public AudioFormat AudioFormat => audioFormat;
+
+        public int CodecFamily { get; private set; }
+
+        public string FileName { get; }
+
+        public double BitRate { get; private set; }
 
         public int BitDepth => (int)(bitsPerChannel * channelsPerFrame);
 
-        public double Duration
+        public double Duration { get; private set; }
+
+        public int SampleRate => (int)sampleRate;
+
+        public ChannelsArrangement ChannelsArrangement { get; private set; }
+
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
         {
-            get { return duration; }
-        }
-        public int SampleRate
-        {
-            get { return (int)sampleRate; }
-        }
-        public ChannelsArrangement ChannelsArrangement
-        {
-            get { return channelsArrangement; }
-        }
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType)
-        {
-            return metaDataType == MetaDataIOFactory.TagType.NATIVE;
-        }
-        public long HasEmbeddedID3v2
-        {
-            get { return -2; }
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.NATIVE };
         }
 
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
 
         protected override int getDefaultTagOffset()
         {
@@ -203,7 +171,7 @@ namespace ATL.AudioData.IO
         {
             Field supportedMetaId = Field.NO_FIELD;
 
-            if (frameMapping.ContainsKey(ID)) supportedMetaId = frameMapping[ID];
+            if (frameMapping.TryGetValue(ID, out var value)) supportedMetaId = value;
 
             return supportedMetaId;
         }
@@ -217,13 +185,13 @@ namespace ATL.AudioData.IO
         protected void resetData()
         {
             sampleRate = 0;
-            duration = 0;
-            bitrate = 0;
+            Duration = 0;
+            BitRate = 0;
             isVbr = false;
-            codecFamily = 0;
+            CodecFamily = 0;
             bitsPerChannel = 0;
             channelsPerFrame = 0;
-            channelsArrangement = null;
+            ChannelsArrangement = null;
             secondsPerByte = 0;
             AudioDataOffset = -1;
             AudioDataSize = 0;
@@ -232,10 +200,10 @@ namespace ATL.AudioData.IO
         /// <summary>
         /// Constructor
         /// </summary>
-        public CAF(string filePath, Format format)
+        public CAF(string filePath, AudioFormat format)
         {
-            this.filePath = filePath;
-            containerAudioFormat = format;
+            this.FileName = filePath;
+            audioFormat = format;
             resetData();
         }
 
@@ -284,20 +252,26 @@ namespace ATL.AudioData.IO
             }
 
             // Determine audio properties according to the format ID
-            codecFamily = AudioDataIOFactory.CF_LOSSY;
+            CodecFamily = AudioDataIOFactory.CF_LOSSY;
             switch (formatId)
             {
                 case ("lpcm"):
                 case ("alac"):
-                    codecFamily = AudioDataIOFactory.CF_LOSSLESS;
+                    CodecFamily = AudioDataIOFactory.CF_LOSSLESS;
                     break;
             }
 
-            // Determine format
-            if (formatsMapping.ContainsKey(formatId))
-                containeeAudioFormat = formatsMapping[formatId];
-            else
-                containeeAudioFormat = formatsMapping["none"];
+            // Set audio data format
+            var format = formatsMapping.TryGetValue(formatId, out var value) ? value : formatsMapping["none"];
+            var audioDataFormat = new Format(format.Key, format.Value, format.Value, false);
+            audioFormat = new AudioFormat(audioFormat);
+            audioFormat.DataFormat = audioDataFormat;
+
+            var containerFormat = AudioDataIOFactory.GetInstance().getFormat(audioFormat.ContainerId);
+            if (null == containerFormat) audioFormat.Name = audioFormat.DataFormat.ShortName;
+            else audioFormat.Name = containerFormat.Name + " / " + audioFormat.DataFormat.ShortName;
+
+            audioFormat.ComputeId();
         }
 
         private void readChannelLayoutChunk(BufferedBinaryReader source)
@@ -305,7 +279,7 @@ namespace ATL.AudioData.IO
             uint channelLayout = StreamUtils.DecodeBEUInt32(source.ReadBytes(4));
             // we don't need anything else
 
-            if (channelsMapping.ContainsKey(channelLayout)) channelsArrangement = channelsMapping[channelLayout];
+            if (channelsMapping.TryGetValue(channelLayout, out var value)) ChannelsArrangement = value;
         }
 
         // WARNING : EXPERIMENTAL / UNTESTED DUE TO THE LACK OF METADATA-RICH SAMPLE FILES
@@ -355,11 +329,11 @@ namespace ATL.AudioData.IO
             source.Seek(8, SeekOrigin.Current); // nbPackets
             long nbFrames = StreamUtils.DecodeBEInt64(source.ReadBytes(8));
 
-            duration = nbFrames * 1000d / sampleRate;
+            Duration = nbFrames * 1000d / sampleRate;
         }
 
         /// <inheritdoc/>
-        public bool Read(Stream source, AudioDataManager.SizeInfo sizeInfo, MetaDataIO.ReadTagParams readTagParams)
+        public bool Read(Stream source, AudioDataManager.SizeInfo sizeNfo, ReadTagParams readTagParams)
         {
             return read(source, readTagParams);
         }
@@ -405,21 +379,21 @@ namespace ATL.AudioData.IO
                         AudioDataOffset = cursorPos;
                         audioChunkSize = chunkSize;
                         AudioDataSize = chunkSize + 12;
-                        if (secondsPerByte > 0) duration = chunkSize * secondsPerByte * 1000;
+                        if (secondsPerByte > 0) Duration = chunkSize * secondsPerByte * 1000;
                         break;
                     case CHUNK_PACKET_TABLE:
-                        if (0 == secondsPerByte) readPaktChunk(reader);
+                        if (Utils.ApproxEquals(secondsPerByte, 0)) readPaktChunk(reader);
                         break;
                 }
                 reader.Seek(cursorPos + chunkSize + 12, SeekOrigin.Begin);
                 cursorPos = reader.Position;
             }
-            bitrate = audioChunkSize * 8d / duration;
-            if (null == channelsArrangement)
+            BitRate = audioChunkSize * 8d / Duration;
+            if (null == ChannelsArrangement)
             {
-                if (1 == channelsPerFrame) channelsArrangement = MONO;
-                else if (2 == channelsPerFrame) channelsArrangement = STEREO;
-                else channelsArrangement = new ChannelsArrangement((int)channelsPerFrame, "Custom layout (" + channelsPerFrame + " channels)");
+                if (1 == channelsPerFrame) ChannelsArrangement = MONO;
+                else if (2 == channelsPerFrame) ChannelsArrangement = STEREO;
+                else ChannelsArrangement = new ChannelsArrangement((int)channelsPerFrame, "Custom layout (" + channelsPerFrame + " channels)");
             }
 
             return result;
@@ -429,7 +403,7 @@ namespace ATL.AudioData.IO
         /// <inheritdoc/>
         protected override int write(TagData tag, Stream s, string zone)
         {
-            throw new System.NotImplementedException();
+            throw new NotImplementedException();
         }
     }
 }

@@ -37,11 +37,7 @@ namespace ATL.AudioData.IO
         private byte initialSpeed;
         private byte initialTempo;
 
-        private double bitrate;
-        private double duration;
-
         private SizeInfo sizeInfo;
-        private readonly string filePath;
 
 
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
@@ -53,27 +49,29 @@ namespace ATL.AudioData.IO
         public bool IsVBR => false;
 
         /// <inheritdoc/>
-        public Format AudioFormat
-        {
-            get;
-        }
+        public AudioFormat AudioFormat { get; }
         /// <inheritdoc/>
         public int CodecFamily => AudioDataIOFactory.CF_SEQ_WAV;
         /// <inheritdoc/>
-        public string FileName => filePath;
+        public string FileName { get; }
+
         /// <inheritdoc/>
-        public double BitRate => bitrate;
+        public double BitRate { get; private set; }
+
         /// <inheritdoc/>
         public int BitDepth => -1; // Irrelevant for that format
         /// <inheritdoc/>
-        public double Duration => duration;
+        public double Duration { get; private set; }
+
         /// <inheritdoc/>
         public ChannelsArrangement ChannelsArrangement => STEREO;
         /// <inheritdoc/>
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType)
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
         {
-            return metaDataType == MetaDataIOFactory.TagType.NATIVE;
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.NATIVE };
         }
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
         /// <inheritdoc/>
         public long AudioDataOffset { get; set; }
         /// <inheritdoc/>
@@ -98,8 +96,8 @@ namespace ATL.AudioData.IO
 
         protected void resetData()
         {
-            duration = 0;
-            bitrate = 0;
+            Duration = 0;
+            BitRate = 0;
 
             patternTable = new List<byte>();
 
@@ -112,9 +110,9 @@ namespace ATL.AudioData.IO
             ResetData();
         }
 
-        public IT(string filePath, Format format)
+        public IT(string filePath, AudioFormat format)
         {
-            this.filePath = filePath;
+            FileName = filePath;
             AudioFormat = format;
             resetData();
         }
@@ -397,9 +395,9 @@ namespace ATL.AudioData.IO
             return StreamUtils.ArrBeginsWith(data, IT_SIGNATURE);
         }
 
-        public bool Read(Stream source, SizeInfo sizeInfo, ReadTagParams readTagParams)
+        public bool Read(Stream source, SizeInfo sizeNfo, ReadTagParams readTagParams)
         {
-            this.sizeInfo = sizeInfo;
+            this.sizeInfo = sizeNfo;
 
             return read(source, readTagParams);
         }
@@ -436,8 +434,6 @@ namespace ATL.AudioData.IO
             {
                 throw new InvalidDataException(sizeInfo.FileSize + " : Invalid IT file (file signature mismatch)"); // TODO - might be a compressed file -> PK header
             }
-
-            tagExists = true;
 
             // Title = max first 26 chars after file signature; null-terminated
             string title = StreamUtils.ReadNullTerminatedStringFixed(bSource, Utils.Latin1Encoding, 26);
@@ -529,7 +525,7 @@ namespace ATL.AudioData.IO
 
             // == Computing track properties
 
-            duration = calculateDuration() * 1000.0;
+            Duration = calculateDuration() * 1000.0;
 
             string commentStr;
             if (messageLength > 0) // Get Comment from the "IT message" field
@@ -550,7 +546,7 @@ namespace ATL.AudioData.IO
             }
             tagData.IntegrateValue(TagData.Field.COMMENT, commentStr);
 
-            bitrate = (double)sizeInfo.FileSize / duration;
+            BitRate = (double)sizeInfo.FileSize / Duration;
 
             return result;
         }

@@ -1,5 +1,4 @@
-﻿using ATL.AudioData;
-using ATL.Logging;
+﻿using ATL.Logging;
 using Commons;
 using HashDepot;
 using System;
@@ -154,17 +153,12 @@ namespace ATL
         /// <summary>
         /// Freeform transient value to be used by other parts of the library
         /// </summary>
-        public int TransientFlag { get; set; }
+        internal int TransientFlag { get; set; }
 
         /// <summary>
         /// Get the MIME-type associated with the picture
         /// </summary>
-        public string MimeType
-        {
-            get { return ImageUtils.GetMimeTypeFromImageFormat(NativeFormat); }
-        }
-
-
+        public string MimeType => ImageUtils.GetMimeTypeFromImageFormat(NativeFormat);
 
 
         // ---------------- STATIC CONSTRUCTORS
@@ -180,8 +174,8 @@ namespace ATL
         /// <returns></returns>
         public static PictureInfo fromBinaryData(byte[] data, PIC_TYPE picType = PIC_TYPE.Generic, TagType tagType = TagType.ANY, object nativePicCode = null, int position = 1)
         {
-            if (null == data || data.Length < 3) throw new ArgumentException("Data should not be null and be at least 3 bytes long");
-            if (null == nativePicCode) nativePicCode = 0; // Can't default with 0 in params declaration
+            if (null == data) throw new ArgumentException("Data should not be null");
+            nativePicCode ??= 0; // Can't default with 0 in params declaration
 
             return new PictureInfo(picType, tagType, nativePicCode, position, data);
         }
@@ -189,20 +183,20 @@ namespace ATL
         /// <summary>
         /// Construct picture information from its raw, binary data
         /// </summary>
-        /// <param name="stream">Stream containing raw picture data, positioned at the beginning of picture data</param>
-        /// <param name="length">Length of the picture data to read inside the given stream</param>
+        /// <param name="inStream">Stream containing raw picture data, positioned at the beginning of picture data</param>
+        /// <param name="length">Length of the picture data to read inside the given Stream</param>
         /// <param name="picType">Type of the picture (default : Generic)</param>
         /// <param name="tagType">Type of the containing tag (default : TAG_ANY)</param>
         /// <param name="nativePicCode">Native code of the picture, as stated in its containing format's specs (default : not set)</param>
         /// <param name="position">Position of the picture among the other pictures of the same file (default : 1)</param>
         /// <returns></returns>
-        public static PictureInfo fromBinaryData(Stream stream, int length, PIC_TYPE picType, TagType tagType, object nativePicCode, int position = 1)
+        public static PictureInfo fromBinaryData(Stream inStream, int length, PIC_TYPE picType, TagType tagType, object nativePicCode, int position = 1)
         {
-            if (null == stream || length < 3) throw new ArgumentException("Stream should not be null and be at least 3 bytes long");
+            if (null == inStream) throw new ArgumentException("Stream should not be null");
 
-            byte[] data = new byte[length];
-            stream.Read(data, 0, length);
-            return new PictureInfo(picType, tagType, nativePicCode, position, data);
+            using MemoryStream outStream = new MemoryStream(length);
+            StreamUtils.CopyStream(inStream, outStream, length);
+            return new PictureInfo(picType, tagType, nativePicCode, position, outStream.ToArray());
         }
 
         // ---------------- CONSTRUCTORS
@@ -251,26 +245,26 @@ namespace ATL
             MarkedForDeletion = false;
             Description = "";
 
-            string picCodeStr = nativePicCode as string;
-            if (picCodeStr != null)
+            if (nativePicCode is string picCodeStr)
             {
                 NativePicCodeStr = picCodeStr;
                 NativePicCode = -1;
             }
-            else if (nativePicCode is byte)
+            else if (nativePicCode is byte code)
             {
-                NativePicCode = (byte)nativePicCode;
+                NativePicCode = code;
             }
-            else if (nativePicCode is int)
+            else if (nativePicCode is int picCode)
             {
-                NativePicCode = (int)nativePicCode;
+                NativePicCode = picCode;
             }
             else
             {
                 LogDelegator.GetLogDelegate()(Log.LV_WARNING, "nativePicCode type is not supported; expected byte, int or string; found " + nativePicCode.GetType().Name);
             }
             PictureData = binaryData;
-            NativeFormat = ImageUtils.GetImageFormatFromPictureHeader(PictureData);
+            if (PictureData.Length > 11)
+                NativeFormat = ImageUtils.GetImageFormatFromPictureHeader(PictureData);
         }
 
         /// <summary>
@@ -282,6 +276,7 @@ namespace ATL
         {
             PicType = picType;
             NativeFormat = ImageFormat.Undefined;
+            TagType = TagType.ANY;
             Position = position;
             MarkedForDeletion = false;
             Description = "";
@@ -302,19 +297,18 @@ namespace ATL
             MarkedForDeletion = false;
             Description = "";
 
-            string picCodeStr = nativePicCode as string;
-            if (picCodeStr != null)
+            if (nativePicCode is string picCodeStr)
             {
                 NativePicCodeStr = picCodeStr;
                 NativePicCode = -1;
             }
-            else if (nativePicCode is byte)
+            else if (nativePicCode is byte code)
             {
-                NativePicCode = (byte)nativePicCode;
+                NativePicCode = code;
             }
-            else if (nativePicCode is int)
+            else if (nativePicCode is int picCode)
             {
-                NativePicCode = (int)nativePicCode;
+                NativePicCode = picCode;
             }
             else
             {
@@ -334,7 +328,10 @@ namespace ATL
             return PictureHash;
         }
 
-        // TODO doc
+        /// <summary>
+        /// Test the equality of two PictureInfo regardless of how they're represented internally
+        /// (native codes or generic enum)
+        /// </summary>
         public bool EqualsProper(PictureInfo picInfo)
         {
             return Position == picInfo.Position && (equalsNative(picInfo) || equalsGeneric(picInfo));
@@ -344,13 +341,12 @@ namespace ATL
         {
             if (0 == TagType || TagType != picInfo.TagType) return false;
             if (NativePicCode > 0 && NativePicCode == picInfo.NativePicCode) return true;
-            if (NativePicCodeStr != null && NativePicCodeStr.Length > 0 && NativePicCodeStr == picInfo.NativePicCodeStr) return true;
-            return false;
+            return !string.IsNullOrEmpty(NativePicCodeStr) && NativePicCodeStr == picInfo.NativePicCodeStr;
         }
 
         private bool equalsGeneric(PictureInfo picInfo)
         {
-            return (PIC_TYPE.Unsupported != PicType && PicType == picInfo.PicType);
+            return PIC_TYPE.Unsupported != PicType && PicType == picInfo.PicType;
         }
 
         // ---------------- OVERRIDES FOR DICTIONARY STORING & UTILS
@@ -366,10 +362,10 @@ namespace ATL
 
         private string valueToString()
         {
-            if (NativePicCode > 0 && TagType > 0)
-                return ((10000000 * ((int)TagType)) + "N" + NativePicCode).ToString();
-            else if (NativePicCodeStr != null && NativePicCodeStr.Length > 0 && TagType > 0)
-                return (10000000 * ((int)TagType)).ToString() + "N" + NativePicCodeStr;
+            if (NativePicCode > 0 && TagType != TagType.ANY)
+                return 10000000 * (int)TagType + "N" + NativePicCode;
+            else if (!string.IsNullOrEmpty(NativePicCodeStr) && TagType != TagType.ANY)
+                return 10000000 * (int)TagType + "N" + NativePicCodeStr;
             else if (PicType != PIC_TYPE.Unsupported)
                 return "T" + Utils.BuildStrictLengthString(((int)PicType).ToString(), 2, '0', false); // TagType doesn't matter if we're working with generic picture codes
             else

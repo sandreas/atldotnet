@@ -1,11 +1,13 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Linq;
 using static ATL.AudioData.AudioDataManager;
 using Commons;
 using static ATL.ChannelsArrangements;
 using static ATL.TagData;
 using System.Threading.Tasks;
+using static System.Int32;
 
 namespace ATL.AudioData.IO
 {
@@ -13,15 +15,16 @@ namespace ATL.AudioData.IO
     /// Class for SPC700 files manipulation (extensions : .SPC)
     /// According to file format v0.30; inspired by the SNESamp source (ID666.cpp)
     /// </summary>
-    class SPC : MetaDataIO, IAudioDataIO
+    partial class SPC : MetaDataIO, IAudioDataIO
     {
         private const string ZONE_EXTENDED = "extended";
         private const string ZONE_HEADER = "header";
 
         private static readonly byte[] SPC_FORMAT_TAG = Utils.Latin1Encoding.GetBytes("SNES-SPC700 Sound File Data");
-        private const String XTENDED_TAG = "xid6";
+        private const string XTENDED_TAG = "xid6";
 
 #pragma warning disable S1144 // Unused private types or members should be removed
+#pragma warning disable IDE0051 // Remove unused private members
         private const int REGISTERS_LENGTH = 9;
         private const int AUDIODATA_LENGTH = 65792;
         private const int SPC_RAW_LENGTH = 66048;
@@ -77,19 +80,16 @@ namespace ATL.AudioData.IO
         private const int XID6_TICKSSEC = 64000;                //Number of ticks in a second
         private const int XID6_TICKSMS = 64;                    //Number of ticks in a millisecond
         private const int XID6_MAXLOOP = 9;                 //Max loop times
+#pragma warning restore IDE0051 // Remove unused private members
 #pragma warning restore S1144 // Unused private types or members should be removed
 
 
         // Standard fields
-        private int sampleRate;
-        private double bitrate;
-        private double duration;
 
         private SizeInfo sizeInfo;
-        private readonly string filePath;
 
         // Mapping between SPC extended frame codes and ATL frame codes
-        private static IDictionary<byte, Field> extendedFrameMapping = new Dictionary<byte, Field>
+        private static readonly IDictionary<byte, Field> extendedFrameMapping = new Dictionary<byte, Field>
         {
             { XID6_SONG, Field.TITLE },
             { XID6_GAME, Field.ALBUM }, // Small innocent semantic shortcut
@@ -101,7 +101,7 @@ namespace ATL.AudioData.IO
             { XID6_PUB, Field.PUBLISHER }
         };
         // Mapping between SPC header frame codes and ATL frame codes
-        private static IDictionary<byte, Field> headerFrameMapping = new Dictionary<byte, Field>
+        private static readonly IDictionary<byte, Field> headerFrameMapping = new Dictionary<byte, Field>
         {
             { HEADER_TITLE, Field.TITLE },
             { HEADER_ALBUM, Field.ALBUM },
@@ -109,7 +109,7 @@ namespace ATL.AudioData.IO
             { HEADER_COMMENT, Field.COMMENT }
         };
         // Frames that are required for playback
-        private static IList<byte> playbackFrames = new List<byte>
+        private static readonly IList<byte> playbackFrames = new List<byte>
         {
             XID6_INTRO,
             XID6_LOOP,
@@ -122,7 +122,7 @@ namespace ATL.AudioData.IO
             HEADER_FADE
         };
         // Mapping between SPC frame codes and frame data types that aren't type 1
-        private static IDictionary<byte, byte> extendedFrameTypes = new Dictionary<byte, byte>()
+        private static readonly IDictionary<byte, byte> extendedFrameTypes = new Dictionary<byte, byte>()
         {
             { XID6_DATE, 4 },
             { XID6_EMU, 0 },
@@ -142,43 +142,31 @@ namespace ATL.AudioData.IO
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
 
         // AudioDataIO
-        public int SampleRate // Sample rate (hz)
-        {
-            get { return this.sampleRate; }
-        }
-        public bool IsVBR
-        {
-            get { return false; }
-        }
-        public Format AudioFormat
-        {
-            get;
-        }
-        public int CodecFamily
-        {
-            get { return AudioDataIOFactory.CF_SEQ_WAV; }
-        }
-        public string FileName
-        {
-            get { return filePath; }
-        }
-        public double BitRate
-        {
-            get { return bitrate; }
-        }
+        public int SampleRate { get; private set; }
+
+        public bool IsVBR => false;
+
+        public AudioFormat AudioFormat { get; }
+
+        public int CodecFamily => AudioDataIOFactory.CF_SEQ_WAV;
+
+        public string FileName { get; }
+
+        public double BitRate { get; private set; }
+
         public int BitDepth => -1; // Irrelevant for that format
-        public double Duration
+        public double Duration { get; private set; }
+
+        public ChannelsArrangement ChannelsArrangement => STEREO;
+
+        /// <inheritdoc/>
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
         {
-            get { return duration; }
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.NATIVE, MetaDataIOFactory.TagType.APE };
         }
-        public ChannelsArrangement ChannelsArrangement
-        {
-            get { return ChannelsArrangements.STEREO; }
-        }
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType)
-        {
-            return (metaDataType == MetaDataIOFactory.TagType.NATIVE) || (metaDataType == MetaDataIOFactory.TagType.APE);
-        }
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
+
         public long AudioDataOffset { get; set; }
         public long AudioDataSize { get; set; }
 
@@ -194,11 +182,11 @@ namespace ATL.AudioData.IO
         protected override Field getFrameMapping(string zone, string ID, byte tagVersion)
         {
             Field supportedMetaId = Field.NO_FIELD;
-            byte ID_b = Byte.Parse(ID);
+            byte ID_b = byte.Parse(ID);
 
             // Finds the ATL field identifier
-            if (ZONE_EXTENDED.Equals(zone) && extendedFrameMapping.ContainsKey(ID_b)) supportedMetaId = extendedFrameMapping[ID_b];
-            else if (ZONE_HEADER.Equals(zone) && headerFrameMapping.ContainsKey(ID_b)) supportedMetaId = headerFrameMapping[ID_b];
+            if (ZONE_EXTENDED.Equals(zone) && extendedFrameMapping.TryGetValue(ID_b, out var value)) supportedMetaId = value;
+            else if (ZONE_HEADER.Equals(zone) && headerFrameMapping.TryGetValue(ID_b, out var value1)) supportedMetaId = value1;
 
             return supportedMetaId;
         }
@@ -237,16 +225,16 @@ namespace ATL.AudioData.IO
         private void resetData()
         {
             // Reset variables
-            sampleRate = 32000; // Seems to be de facto value for all SPC files, even though spec doesn't say anything about it
-            bitrate = 0;
-            duration = SPC_DEFAULT_DURATION;
+            SampleRate = 32000; // Seems to be de facto value for all SPC files, even though spec doesn't say anything about it
+            BitRate = 0;
+            Duration = SPC_DEFAULT_DURATION;
 
             ResetData();
         }
 
-        public SPC(string filePath, Format format)
+        public SPC(string filePath, AudioFormat format)
         {
-            this.filePath = filePath;
+            this.FileName = filePath;
             AudioFormat = format;
             resetData();
         }
@@ -259,17 +247,17 @@ namespace ATL.AudioData.IO
             return StreamUtils.ArrBeginsWith(data, SPC_FORMAT_TAG);
         }
 
-        private bool readHeader(Stream source, ref SpcHeader header)
+        private static bool readHeader(Stream source, ref SpcHeader header)
         {
             source.Seek(0, SeekOrigin.Begin);
 
             long initialPosition = source.Position;
             byte[] buffer = new byte[SPC_FORMAT_TAG.Length];
-            source.Read(buffer, 0, buffer.Length);
+            if (source.Read(buffer, 0, buffer.Length) < buffer.Length) return false;
             if (IsValidHeader(buffer))
             {
                 source.Seek(8, SeekOrigin.Current); // Remainder of header tag (version marker vX.XX + 2 bytes)
-                source.Read(buffer, 0, 2);
+                if (source.Read(buffer, 0, 2) < 2) return false;
                 header.TagInHeader = buffer[0];
                 header.Size = source.Position - initialPosition;
                 return true;
@@ -285,13 +273,13 @@ namespace ATL.AudioData.IO
             byte[] buffer = new byte[32];
             long initialPosition = source.Position;
 
-            source.Read(buffer, 0, 32);
+            if (source.Read(buffer, 0, 32) < 32) return;
             SetMetaField(HEADER_TITLE.ToString(), Utils.Latin1Encoding.GetString(buffer).Replace("\0", "").Trim(), readTagParams.ReadAllMetaFrames, ZONE_HEADER);
-            source.Read(buffer, 0, 32);
+            if (source.Read(buffer, 0, 32) < 32) return;
             SetMetaField(HEADER_ALBUM.ToString(), Utils.Latin1Encoding.GetString(buffer).Replace("\0", "").Trim(), readTagParams.ReadAllMetaFrames, ZONE_HEADER);
-            source.Read(buffer, 0, 16);
+            if (source.Read(buffer, 0, 16) < 16) return;
             SetMetaField(HEADER_DUMPERNAME.ToString(), Utils.Latin1Encoding.GetString(buffer).Replace("\0", "").Trim(), readTagParams.ReadAllMetaFrames, ZONE_HEADER);
-            source.Read(buffer, 0, 32);
+            if (source.Read(buffer, 0, 32) < 32) return;
             SetMetaField(HEADER_COMMENT.ToString(), Utils.Latin1Encoding.GetString(buffer).Replace("\0", "").Trim(), readTagParams.ReadAllMetaFrames, ZONE_HEADER);
 
             byte[] date = new byte[11];
@@ -300,18 +288,16 @@ namespace ATL.AudioData.IO
 
             // NB : Dump date is used to determine if the tag is binary or text-based.
             // It won't be recorded as a property of TSPC
-            source.Read(date, 0, date.Length);
-            source.Read(song, 0, song.Length);
-            source.Read(fade, 0, fade.Length);
-
-            bool bin;
+            if (source.Read(date, 0, date.Length) < date.Length) return;
             int dateRes = isText(date);
+            if (source.Read(song, 0, song.Length) < song.Length) return;
             int songRes = isText(song);
+            if (source.Read(fade, 0, fade.Length) < fade.Length) return;
             int fadeRes = isText(fade);
 
-            bin = true;
+            bool bin = true;
 
-            if ((songRes != -1) && (fadeRes != -1)) // No time, or time is text
+            if (songRes != -1 && fadeRes != -1) // No time, or time is text
             {
                 if (dateRes > 0)                    //If date is text, then tag is text
                 {
@@ -326,7 +312,7 @@ namespace ATL.AudioData.IO
                     bin = true;
                     for (int i = 4; i < 8; i++)
                     {
-                        bin = bin && (0 == date[i]);
+                        bin = bin && 0 == date[i];
                     }
                 }
             }
@@ -365,9 +351,9 @@ namespace ATL.AudioData.IO
             SetMetaField(HEADER_SONGLENGTH.ToString(), Utils.Latin1Encoding.GetString(song), readTagParams.ReadAllMetaFrames, ZONE_HEADER);
 
             // if fadeval > 0 alone, the fade is applied on the default 3:00 duration without extending it
-            if (songVal > 0) duration = fadeVal + songVal;
+            if (songVal > 0) Duration = fadeVal + songVal;
 
-            source.Read(buffer, 0, 32);
+            if (source.Read(buffer, 0, 32) < 32) return;
             SetMetaField(HEADER_ARTIST.ToString(), Utils.Latin1Encoding.GetString(buffer).Replace("\0", "").Trim(), readTagParams.ReadAllMetaFrames, ZONE_HEADER);
             header.Size += source.Position - initialPosition;
 
@@ -377,7 +363,7 @@ namespace ATL.AudioData.IO
             }
         }
 
-        private int isText(byte[] data)
+        private static int isText(byte[] data)
         {
             int c = 0;
 
@@ -393,16 +379,13 @@ namespace ATL.AudioData.IO
         {
             long initialPosition = source.Position;
             byte[] buffer = new byte[4];
-            source.Read(buffer, 0, buffer.Length);
+            if (source.Read(buffer, 0, buffer.Length) < buffer.Length) return;
             footer.FormatTag = Utils.Latin1Encoding.GetString(buffer);
             if (XTENDED_TAG == footer.FormatTag)
             {
-                tagExists = true;
-                source.Read(buffer, 0, buffer.Length);
+                if (source.Read(buffer, 0, buffer.Length) < buffer.Length) return;
                 footer.Size = StreamUtils.DecodeUInt32(buffer);
 
-                byte ID, type;
-                ushort size;
                 string strData = "";
                 int intData = 0;
                 long ticks = 0;
@@ -410,11 +393,11 @@ namespace ATL.AudioData.IO
                 long dataPosition = source.Position;
                 while (source.Position < dataPosition + footer.Size - 4)
                 {
-                    source.Read(buffer, 0, 2);
-                    ID = buffer[0];
-                    type = buffer[1];
-                    source.Read(buffer, 0, 2);
-                    size = StreamUtils.DecodeUInt16(buffer);
+                    if (source.Read(buffer, 0, 2) < 2) break;
+                    var ID = buffer[0];
+                    var type = buffer[1];
+                    if (source.Read(buffer, 0, 2) < 2) break;
+                    var size = StreamUtils.DecodeUInt16(buffer);
 
                     switch (type)
                     {
@@ -439,14 +422,14 @@ namespace ATL.AudioData.IO
                         case XID6_TSTR:
                             intData = 0;
                             byte[] strDatab = new byte[size];
-                            source.Read(strDatab, 0, size);
+                            if (source.Read(strDatab, 0, size) < size) break;
                             strData = Utils.Latin1Encoding.GetString(strDatab).Replace("\0", "").Trim();
 
                             while (source.Position < source.Length && 0 == source.ReadByte()) ; // Skip parasite ending zeroes
                             if (source.Position < source.Length) source.Seek(-1, SeekOrigin.Current);
                             break;
                         case XID6_TINT:
-                            source.Read(buffer, 0, 4);
+                            if (source.Read(buffer, 0, 4) < 4) break;
                             intData = StreamUtils.DecodeInt32(buffer);
                             strData = intData.ToString();
                             break;
@@ -461,7 +444,7 @@ namespace ATL.AudioData.IO
                     SetMetaField(ID.ToString(), strData, readTagParams.ReadAllMetaFrames, ZONE_EXTENDED);
                 }
 
-                if (ticks > 0) duration = Math.Round((double)ticks / XID6_TICKSSEC);
+                if (ticks > 0) Duration = Math.Round((double)ticks / XID6_TICKSSEC);
 
                 if (readTagParams.PrepareForWriting)
                 {
@@ -472,9 +455,9 @@ namespace ATL.AudioData.IO
 
         // === PUBLIC METHODS ===
 
-        public bool Read(Stream source, SizeInfo sizeInfo, ReadTagParams readTagParams)
+        public bool Read(Stream source, SizeInfo sizeNfo, ReadTagParams readTagParams)
         {
-            this.sizeInfo = sizeInfo;
+            this.sizeInfo = sizeNfo;
 
             return read(source, readTagParams);
         }
@@ -496,7 +479,6 @@ namespace ATL.AudioData.IO
             // Reads the header tag
             if (SpcHeader.TAG_IN_HEADER == header.TagInHeader)
             {
-                tagExists = true;
                 source.Seek(REGISTERS_LENGTH, SeekOrigin.Current);
                 readHeaderTags(source, ref header, readTagParams);
             }
@@ -518,7 +500,7 @@ namespace ATL.AudioData.IO
             }
 
             AudioDataSize = sizeInfo.FileSize - header.Size - footer.Size;
-            bitrate = AudioDataSize * 8 / duration;
+            BitRate = AudioDataSize * 8 / Duration;
 
             return result;
         }
@@ -527,6 +509,7 @@ namespace ATL.AudioData.IO
         {
             int result = 0;
 
+            var buffer = new Span<byte>(new byte[4]);
             if (zone.Equals(ZONE_HEADER))
             {
                 StreamUtils.WriteBytes(s, Utils.Latin1Encoding.GetBytes(Utils.BuildStrictLengthString(tag[Field.TITLE], 32, '\0')));
@@ -544,11 +527,10 @@ namespace ATL.AudioData.IO
                 // SPC specific : are only allowed to appear in extended metadata fields that
                 //   - either do not exist in header
                 //   - or have been truncated when written in header
-                long sizePos;
-
-                StreamUtils.WriteBytes(s, Utils.Latin1Encoding.GetBytes(XTENDED_TAG));
-                sizePos = s.Position;
-                StreamUtils.WriteInt32(s, 0); // Size placeholder; to be rewritten with actual value at the end of the method
+                Utils.Latin1Encoding.GetBytes(XTENDED_TAG.AsSpan(), buffer);
+                s.Write(buffer);
+                long sizePos = s.Position;
+                StreamUtils.WriteInt32(s, 0, buffer); // Size placeholder; to be rewritten with actual value at the end of the method
 
                 IDictionary<Field, string> map = tag.ToMap();
 
@@ -561,7 +543,7 @@ namespace ATL.AudioData.IO
                         {
                             if (map[frameType].Length > 0 && canBeWrittenInExtendedMetadata(frameType, map[frameType])) // No frame with empty value
                             {
-                                writeSubChunk(s, b, map[frameType]);
+                                writeSubChunk(s, b, map[frameType], buffer);
                                 result++;
                             }
                             break;
@@ -570,38 +552,38 @@ namespace ATL.AudioData.IO
                 }
 
                 // Other textual fields
-                foreach (MetaFieldInfo fieldInfo in tag.AdditionalFields)
+                foreach (MetaFieldInfo fieldInfo in tag.AdditionalFields.Where(isMetaFieldWritable))
                 {
-                    if ((fieldInfo.TagType.Equals(MetaDataIOFactory.TagType.ANY) || fieldInfo.TagType.Equals(getImplementedTagType())) && !fieldInfo.MarkedForDeletion && !fieldInfo.Zone.Equals(ZONE_HEADER) && fieldInfo.Value.Length > 0)
+                    if (!fieldInfo.Zone.Equals(ZONE_HEADER) && fieldInfo.Value.Length > 0)
                     {
-                        writeSubChunk(s, Byte.Parse(fieldInfo.NativeFieldCode), FormatBeforeWriting(fieldInfo.Value));
+                        writeSubChunk(s, byte.Parse(fieldInfo.NativeFieldCode), FormatBeforeWriting(fieldInfo.Value), buffer);
                         result++;
                     }
                 }
 
                 int size = (int)(s.Position - sizePos);
                 s.Seek(sizePos, SeekOrigin.Begin);
-                StreamUtils.WriteInt32(s, size);
+                StreamUtils.WriteInt32(s, size, buffer);
             }
 
             return result;
         }
 
-        private bool canBeWrittenInExtendedMetadata(Field frameType, string value)
+        private static bool canBeWrittenInExtendedMetadata(Field frameType, string value)
         {
             if (frameType == Field.TITLE || frameType == Field.ALBUM || frameType == Field.COMMENT || frameType == Field.ARTIST)
             {
-                return (value.Length > 32);
+                return value.Length > 32;
             }
-            else return true;
+            return true;
         }
 
-        private void writeSubChunk(Stream stream, byte frameCode, string text)
+        private static void writeSubChunk(Stream stream, byte frameCode, string text, Span<byte> buffer)
         {
             stream.WriteByte(frameCode);
 
             byte type = 1;
-            if (extendedFrameTypes.ContainsKey(frameCode)) type = extendedFrameTypes[frameCode];
+            if (extendedFrameTypes.TryGetValue(frameCode, out var frameType)) type = frameType;
             stream.WriteByte(type);
 
             switch (type)
@@ -615,33 +597,27 @@ namespace ATL.AudioData.IO
                     }
                     else
                     {
-                        StreamUtils.WriteUInt16(stream, ushort.Parse(text)); // Value is directly written as an ushort into the length field
+                        StreamUtils.WriteUInt16(stream, ushort.Parse(text), buffer); // Value is directly written as an ushort into the length field
                     }
                     break;
                 case XID6_TSTR:
-                    if (text.Length > 255) text = text.Substring(0, 255);
+                    if (text.Length > 255) text = text[..255];
                     else if (text.Length < 3) text = Utils.BuildStrictLengthString(text, 3, ' ');
 
                     byte[] textBinary = Utils.Latin1Encoding.GetBytes(text);
-                    StreamUtils.WriteUInt16(stream, (ushort)(textBinary.Length + 1));
+                    StreamUtils.WriteUInt16(stream, (ushort)(textBinary.Length + 1), buffer);
                     StreamUtils.WriteBytes(stream, textBinary);
                     stream.WriteByte(0);
                     break;
                 case XID6_TINT:
-                    StreamUtils.WriteUInt16(stream, (ushort)4);
-                    StreamUtils.WriteInt32(stream, Int32.Parse(text));
+                    StreamUtils.WriteUInt16(stream, 4, buffer);
+                    StreamUtils.WriteInt32(stream, Parse(text), buffer);
                     break;
             }
         }
 
         // Specific implementation for conservation of fields that are required for playback
-        public override bool Remove(Stream s)
-        {
-            TagData tag = prepareRemove();
-            return Write(s, tag);
-        }
-
-        // Specific implementation for conservation of fields that are required for playback
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
         public override async Task<bool> RemoveAsync(Stream s)
         {
             TagData tag = prepareRemove();
@@ -659,7 +635,7 @@ namespace ATL.AudioData.IO
             byte fieldCode;
             foreach (MetaFieldInfo fieldInfo in GetAdditionalFields())
             {
-                fieldCode = Byte.Parse(fieldInfo.NativeFieldCode);
+                fieldCode = byte.Parse(fieldInfo.NativeFieldCode);
                 if (!playbackFrames.Contains(fieldCode))
                 {
                     MetaFieldInfo emptyFieldInfo = new MetaFieldInfo(fieldInfo);

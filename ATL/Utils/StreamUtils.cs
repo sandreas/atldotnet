@@ -1,5 +1,5 @@
-﻿using Microsoft.Win32;
-using System;
+﻿using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -9,62 +9,9 @@ namespace ATL
 {
     /// <summary>
     /// Misc. utilities used by binary readers
-    /// 
-    /// TODO : Benchmark against System.Buffers.Binary.BinaryPrimitives when the library's minimum .NET version becomes 5
     /// </summary>
-    internal static class StreamUtils
+    internal static partial class StreamUtils
     {
-        /// <summary>
-        /// Handler signature to be used when needing to process a MemoryStream
-        /// </summary>
-        public delegate void StreamHandlerDelegate(ref MemoryStream stream);
-
-
-        /// <summary>
-        /// Determines if the contents of a string (character by character) is the same
-        /// as the contents of a char array
-        /// </summary>
-        /// <param name="a">String to be tested</param>
-        /// <param name="b">Char array to be tested</param>
-        /// <returns>True if both contain the same character sequence; false if not</returns>
-        public static bool StringEqualsArr(String a, char[] b)
-        {
-            return ArrEqualsArr(a.ToCharArray(), b);
-        }
-
-
-        /// <summary>
-        /// Determines if two char arrays have the same contents
-        /// </summary>
-        /// <param name="a">First array to be tested</param>
-        /// <param name="b">Second array to be tested</param>
-        /// <returns>True if both arrays have the same contents; false if not</returns>
-        private static bool ArrEqualsArr(char[] a, char[] b)
-        {
-            if (b.Length != a.Length) return false;
-            for (int i = 0; i < b.Length; i++)
-            {
-                if (a[i] != b[i]) return false;
-            }
-            return true;
-        }
-
-        /// <summary>
-        /// Determines if two byte arrays have the same contents
-        /// </summary>
-        /// <param name="a">First array to be tested</param>
-        /// <param name="b">Second array to be tested</param>
-        /// <returns>True if both arrays have the same contents; false if not</returns>
-        public static bool ArrEqualsArr(byte[] a, byte[] b)
-        {
-            if (b.Length != a.Length) return false;
-            for (int i = 0; i < b.Length; i++)
-            {
-                if (a[i] != b[i]) return false;
-            }
-            return true;
-        }
-
         /// <summary>
         /// Determines if the given byte array begins with the other
         /// </summary>
@@ -82,173 +29,14 @@ namespace ATL
         }
 
         /// <summary>
-        /// Copies a given number of bytes from a given stream to another, starting at current stream positions
-        /// i.e. first byte will be read at from.Position and written at to.Position
-        /// NB : This method cannot be used to move data within one single stream; use CopySameStream instead
-        /// </summary>
-        /// <param name="from">Stream to start copy from</param>
-        /// <param name="to">Stream to copy to</param>
-        /// <param name="length">Number of bytes to copy (optional; default = 0 = all bytes until the end of the 'from' stream)</param>
-        public static void CopyStream(Stream from, Stream to, long length = 0)
-        {
-            byte[] data = new byte[Settings.FileBufferSize];
-            int bytesToRead;
-            int totalBytesRead = 0;
-
-            while (true)
-            {
-                if (length > 0)
-                {
-                    if (totalBytesRead + Settings.FileBufferSize < length) bytesToRead = Settings.FileBufferSize; else bytesToRead = toInt(length - totalBytesRead);
-                }
-                else // Read everything we can
-                {
-                    bytesToRead = Settings.FileBufferSize;
-                }
-                int bytesRead = from.Read(data, 0, bytesToRead);
-                if (bytesRead == 0)
-                {
-                    break;
-                }
-                to.Write(data, 0, bytesRead);
-                totalBytesRead += bytesRead;
-            }
-        }
-
-        /// <summary>
-        /// Copy data between the two given offsets within the given stream
-        /// </summary>
-        /// <param name="s">Stream to process</param>
-        /// <param name="offsetFrom">Starting offset to copy data from</param>
-        /// <param name="offsetTo">Starting offset to copy data to</param>
-        /// <param name="length">Length of the data to copy</param>
-        /// <param name="progress">Progress feedback to report with</param>
-        public static void CopySameStream(Stream s, long offsetFrom, long offsetTo, long length, Action<float> progress = null)
-        {
-            CopySameStream(s, offsetFrom, offsetTo, length, Settings.FileBufferSize, progress);
-        }
-
-        /// <summary>
-        /// Copy data between the two given offsets within the given stream, using the given buffer size
-        /// </summary>
-        /// <param name="s">Stream to process</param>
-        /// <param name="offsetFrom">Starting offset to copy data from</param>
-        /// <param name="offsetTo">Starting offset to copy data to</param>
-        /// <param name="length">Length of the data to copy</param>
-        /// <param name="bufferSize">Buffer size to use during the operation</param>
-        /// <param name="progress">Progress feedback to report with</param>
-        public static void CopySameStream(Stream s, long offsetFrom, long offsetTo, long length, int bufferSize, Action<float> progress = null)
-        {
-            if (offsetFrom == offsetTo) return;
-
-            byte[] data = new byte[bufferSize];
-            int bufSize;
-            long written = 0;
-            bool forward = offsetTo > offsetFrom;
-            long nbIterations = (long)Math.Ceiling(length * 1f / bufferSize);
-            long resolution = (long)Math.Ceiling(nbIterations / 10f);
-            float iteration = 0;
-
-            while (written < length)
-            {
-                bufSize = Math.Min(bufferSize, toInt(length - written));
-                if (forward)
-                {
-                    s.Seek(offsetFrom + length - written - bufSize, SeekOrigin.Begin);
-                    s.Read(data, 0, bufSize);
-                    s.Seek(offsetTo + length - written - bufSize, SeekOrigin.Begin);
-                }
-                else
-                {
-                    s.Seek(offsetFrom + written, SeekOrigin.Begin);
-                    s.Read(data, 0, bufSize);
-                    s.Seek(offsetTo + written, SeekOrigin.Begin);
-                }
-                s.Write(data, 0, bufSize);
-                written += bufSize;
-
-                if (progress != null)
-                {
-                    iteration++;
-                    if (0 == iteration % resolution) progress(iteration / nbIterations);
-                }
-            }
-        }
-
-        /// <summary>
         /// Convenient converter for the use of CopySameStream only, where this goes into Min immediately
         /// </summary>
         /// <param name="value">Value to convert</param>
         /// <returns>Same value as int, or int.MaxValue if out of bounds</returns>
         private static int toInt(long value)
         {
-            if (value > int.MaxValue) return int.MaxValue; else return Convert.ToInt32(value);
-        }
-
-        /// <summary>
-        /// Remove a portion of bytes within the given stream
-        /// </summary>
-        /// <param name="s">Stream to process; must be accessible for reading and writing</param>
-        /// <param name="endOffset">End offset of the portion of bytes to remove</param>
-        /// <param name="delta">Number of bytes to remove (starting from endOffset, towards the beginning of the file)</param>
-        /// <param name="progress">Progress feedback to report with</param>
-        public static void ShortenStream(Stream s, long endOffset, uint delta, Action<float> progress = null)
-        {
-            CopySameStream(s, endOffset, endOffset - delta, s.Length - endOffset, progress);
-            s.SetLength(s.Length - delta);
-        }
-
-        /// <summary>
-        /// Add bytes within the given stream
-        /// </summary>
-        /// <param name="s">Stream to process; must be accessible for reading and writing</param>
-        /// <param name="oldIndex">Offset where to add new bytes</param>
-        /// <param name="delta">Number of bytes to add</param>
-        /// <param name="fillZeroes">If true, new bytes will all be zeroes (optional; default = false)</param>
-        /// <param name="progress">Progress feedback to report with</param>
-        public static void LengthenStream(Stream s, long oldIndex, uint delta, bool fillZeroes = false, Action<float> progress = null)
-        {
-            long newIndex = oldIndex + delta;
-            CopySameStream(s, oldIndex, oldIndex + delta, s.Length - oldIndex, progress);
-
-            if (fillZeroes)
-            {
-                // Fill the location of old copied data with zeroes
-                s.Seek(oldIndex, SeekOrigin.Begin);
-                for (long i = oldIndex; i < newIndex; i++) s.WriteByte(0);
-            }
-        }
-
-        /// <summary>
-        /// Decode an signed byte from the given array of bytes
-        /// </summary>
-        /// <param name="data">Array of bytes to read value from</param>
-        /// <returns>Decoded value</returns>
-        public static sbyte DecodeSignedByte(byte[] data)
-        {
-            if (data.Length < 1) throw new InvalidDataException("Data should be at least 1 bytes long; found " + data.Length + " bytes");
-            return (sbyte)(data[0]);
-        }
-
-        /// <summary>
-        /// Decode an unsigned byte from the given array of bytes
-        /// </summary>
-        /// <param name="data">Array of bytes to read value from</param>
-        /// <returns>Decoded value</returns>
-        public static byte DecodeUByte(byte[] data)
-        {
-            if (data.Length < 1) throw new InvalidDataException("Data should be at least 1 bytes long; found " + data.Length + " bytes");
-            return data[0];
-        }
-
-        /// <summary>
-        /// Encode the given value into an array of bytes as an unsigned Little-Endian 16-bits integer
-        /// </summary>
-        /// <param name="value">Value to be encoded</param>
-        /// <returns>Encoded array of bytes</returns>
-        public static byte[] EncodeUInt16(ushort value)
-        {
-            return new byte[2] { (byte)(value & 0x00FF), (byte)((value & 0xFF00) >> 8) };
+            if (value > int.MaxValue) return int.MaxValue;
+            return Convert.ToInt32(value);
         }
 
         /// <summary>
@@ -270,7 +58,7 @@ namespace ATL
         public static byte[] EncodeBEUInt16(ushort value)
         {
             // Output has to be big-endian
-            return new byte[2] { (byte)((value & 0xFF00) >> 8), (byte)(value & 0x00FF) };
+            return new[] { (byte)((value & 0xFF00) >> 8), (byte)(value & 0x00FF) };
         }
 
         /// <summary>
@@ -292,7 +80,7 @@ namespace ATL
         public static short DecodeInt16(byte[] data)
         {
             if (data.Length < 2) throw new InvalidDataException("Data should be at least 2 bytes long; found " + data.Length + " bytes");
-            return (short)((data[0]) | (data[1] << 8));
+            return (short)(data[0] | (data[1] << 8));
         }
 
         /// <summary>
@@ -303,7 +91,7 @@ namespace ATL
         public static byte[] EncodeBEInt16(short value)
         {
             // Output has to be big-endian
-            return new byte[2] { (byte)((value & 0xFF00) >> 8), (byte)(value & 0x00FF) };
+            return new[] { (byte)((value & 0xFF00) >> 8), (byte)(value & 0x00FF) };
         }
 
         /// <summary>
@@ -350,7 +138,7 @@ namespace ATL
             if (value > 0x00FFFFFF) throw new InvalidDataException("Value should not be higher than " + 0x00FFFFFF + "; actual value=" + value);
 
             // Output has to be big-endian
-            return new byte[3] { (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0x0000FF00) >> 8), (byte)(value & 0x000000FF) };
+            return new[] { (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0x0000FF00) >> 8), (byte)(value & 0x000000FF) };
         }
 
         /// <summary>
@@ -365,6 +153,28 @@ namespace ATL
         }
 
         /// <summary>
+        /// Decode an unsigned Big-Endian 40-bit integer from the given array of bytes
+        /// </summary>
+        /// <param name="data">Array of bytes to read value from</param>
+        /// <returns>Decoded value</returns>
+        public static ulong DecodeBEUInt40(byte[] data)
+        {
+            if (data.Length < 5) throw new InvalidDataException("Data should be at least 5 bytes long; found " + data.Length + " bytes");
+            return ((ulong)data[0] << 32) | ((ulong)data[1] << 24) | ((ulong)data[2] << 16) | ((ulong)data[3] << 8) | ((ulong)data[4] << 0);
+        }
+
+        /// <summary>
+        /// Decode an unsigned Big-Endian 64-bit integer from the given array of bytes
+        /// </summary>
+        /// <param name="data">Array of bytes to read value from</param>
+        /// <returns>Decoded value</returns>
+        public static ulong DecodeBEUInt64(byte[] data)
+        {
+            if (data.Length < 8) throw new InvalidDataException("Data should be at least 8 bytes long; found " + data.Length + " bytes");
+            return ((ulong)data[0] << 56) | ((ulong)data[1] << 48) | ((ulong)data[2] << 40) | ((ulong)data[3] << 32) | ((ulong)data[4] << 24) | ((ulong)data[5] << 16) | ((ulong)data[6] << 8) | ((ulong)data[7] << 0);
+        }
+
+        /// <summary>
         /// Decode an unsigned Little-Endian 32-bit integer from the given array of bytes
         /// </summary>
         /// <param name="data">Array of bytes to read value from</param>
@@ -372,7 +182,7 @@ namespace ATL
         public static uint DecodeUInt32(byte[] data)
         {
             if (data.Length < 4) throw new InvalidDataException("Data should be at least 4 bytes long; found " + data.Length + " bytes");
-            return (uint)((data[0]) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24));
+            return (uint)(data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24));
         }
 
         /// <summary>
@@ -383,7 +193,7 @@ namespace ATL
         public static byte[] EncodeBEUInt32(uint value)
         {
             // Output has to be big-endian
-            return new byte[4] { (byte)((value & 0xFF000000) >> 24), (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0x0000FF00) >> 8), (byte)(value & 0x000000FF) };
+            return new[] { (byte)((value & 0xFF000000) >> 24), (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0x0000FF00) >> 8), (byte)(value & 0x000000FF) };
         }
 
         /// <summary>
@@ -405,7 +215,7 @@ namespace ATL
         public static byte[] EncodeBEInt32(int value)
         {
             // Output has to be big-endian
-            return new byte[4] { (byte)((value & 0xFF000000) >> 24), (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0x0000FF00) >> 8), (byte)(value & 0x000000FF) };
+            return new[] { (byte)((value & 0xFF000000) >> 24), (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0x0000FF00) >> 8), (byte)(value & 0x000000FF) };
         }
 
         /// <summary>
@@ -415,7 +225,7 @@ namespace ATL
         /// <returns>Encoded array of bytes</returns>
         public static byte[] EncodeInt32(int value)
         {
-            return new byte[4] { (byte)(value & 0x000000FF), (byte)((value & 0x0000FF00) >> 8), (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0xFF000000) >> 24) };
+            return new[] { (byte)(value & 0x000000FF), (byte)((value & 0x0000FF00) >> 8), (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0xFF000000) >> 24) };
         }
 
         /// <summary>
@@ -425,7 +235,7 @@ namespace ATL
         /// <returns>Encoded array of bytes</returns>
         public static byte[] EncodeUInt32(uint value)
         {
-            return new byte[4] { (byte)(value & 0x000000FF), (byte)((value & 0x0000FF00) >> 8), (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0xFF000000) >> 24) };
+            return new[] { (byte)(value & 0x000000FF), (byte)((value & 0x0000FF00) >> 8), (byte)((value & 0x00FF0000) >> 16), (byte)((value & 0xFF000000) >> 24) };
         }
 
         /// <summary>
@@ -437,6 +247,17 @@ namespace ATL
         {
             if (data.Length < 4) throw new InvalidDataException("data should be at least 4 bytes long; found " + data.Length + " bytes");
             return (data[0]) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+        }
+
+        /// <summary>
+        /// Encode the given value into an array of bytes as a Big-Endian unsigned 40-bits integer
+        /// </summary>
+        /// <param name="value">Value to be encoded</param>
+        /// <returns>Encoded array of bytes</returns>
+        public static byte[] EncodeBEUInt40(ulong value)
+        {
+            // Output has to be big-endian
+            return new[] { (byte)((value & 0xFF00000000) >> 32), (byte)((value & 0x00FF000000) >> 24), (byte)((value & 0x0000FF0000) >> 16), (byte)((value & 0x000000FF00) >> 8), (byte)(value & 0x00000000FF) };
         }
 
         /// <summary>
@@ -479,7 +300,7 @@ namespace ATL
         /// <returns>Encoded array of bytes</returns>
         public static byte[] EncodeUInt64(ulong value)
         {
-            return new byte[8] { (byte)(value & 0x00000000000000FF), (byte)((value & 0x000000000000FF00) >> 8), (byte)((value & 0x0000000000FF0000) >> 16), (byte)((value & 0x00000000FF000000) >> 24), (byte)((value & 0x000000FF00000000) >> 32), (byte)((value & 0x0000FF0000000000) >> 40), (byte)((value & 0x00FF000000000000) >> 48), (byte)((value & 0xFF00000000000000) >> 56) };
+            return new[] { (byte)(value & 0x00000000000000FF), (byte)((value & 0x000000000000FF00) >> 8), (byte)((value & 0x0000000000FF0000) >> 16), (byte)((value & 0x00000000FF000000) >> 24), (byte)((value & 0x000000FF00000000) >> 32), (byte)((value & 0x0000FF0000000000) >> 40), (byte)((value & 0x00FF000000000000) >> 48), (byte)((value & 0xFF00000000000000) >> 56) };
         }
 
         /// <summary>
@@ -490,7 +311,7 @@ namespace ATL
         public static byte[] EncodeBEUInt64(ulong value)
         {
             // Output has to be big-endian
-            return new byte[8] { (byte)((value & 0xFF00000000000000) >> 56), (byte)((value & 0x00FF000000000000) >> 48), (byte)((value & 0x0000FF0000000000) >> 40), (byte)((value & 0x000000FF00000000) >> 32), (byte)((value & 0x00000000FF000000) >> 24), (byte)((value & 0x0000000000FF0000) >> 16), (byte)((value & 0x000000000000FF00) >> 8), (byte)(value & 0x00000000000000FF) };
+            return new[] { (byte)((value & 0xFF00000000000000) >> 56), (byte)((value & 0x00FF000000000000) >> 48), (byte)((value & 0x0000FF0000000000) >> 40), (byte)((value & 0x000000FF00000000) >> 32), (byte)((value & 0x00000000FF000000) >> 24), (byte)((value & 0x0000000000FF0000) >> 16), (byte)((value & 0x000000000000FF00) >> 8), (byte)(value & 0x00000000000000FF) };
         }
 
         /// <summary>
@@ -508,26 +329,6 @@ namespace ATL
         }
 
         /// <summary>
-        /// Switch the format of a signed Int32 between big endian and little endian
-        /// </summary>
-        /// <param name="n">value to convert</param>
-        /// <returns>converted value</returns>
-        public static int ReverseInt32(int n)
-        {
-            byte b0;
-            byte b1;
-            byte b2;
-            byte b3;
-
-            b0 = (byte)((n & 0x000000FF) >> 0);
-            b1 = (byte)((n & 0x0000FF00) >> 8);
-            b2 = (byte)((n & 0x00FF0000) >> 16);
-            b3 = (byte)((n & 0xFF000000) >> 24);
-
-            return (b0 << 24) | (b1 << 16) | (b2 << 8) | (b3 << 0);
-        }
-
-        /// <summary>
         /// Guess the encoding from the file Byte Order Mark (BOM)
         /// http://en.wikipedia.org/wiki/Byte_order_mark 
         /// NB : This obviously only works for files that actually start with a BOM
@@ -538,7 +339,7 @@ namespace ATL
         {
             Encoding result;
             byte[] bom = new byte[4]; // Get the byte-order mark, if there is one
-            file.Read(bom, 0, 4);
+            if (file.Read(bom, 0, 4) < 4) return Settings.DefaultTextEncoding;
             if (bom[0] == 0xef && bom[1] == 0xbb && bom[2] == 0xbf) // utf-8
             {
                 result = Encoding.UTF8;
@@ -568,17 +369,6 @@ namespace ATL
         }
 
         /// <summary>
-        /// Read a null-terminated String from the given BinaryReader, according to the given Encoding
-        /// Returns with the BinaryReader positioned after the last null-character(s)
-        /// </summary>
-        /// <param name="r">BinaryReader positioned at the beginning of the String to be read</param>
-        /// <param name="encoding">Encoding to use for reading the stream</param>
-        /// <returns>Read value</returns>
-        public static string ReadNullTerminatedString(BinaryReader r, Encoding encoding)
-        {
-            return readNullTerminatedString(r.BaseStream, encoding, 0, false);
-        }
-        /// <summary>
         /// Read a null-terminated String from the given Stream, according to the given Encoding
         /// Returns with the BinaryReader positioned after the last null-character(s)
         /// </summary>
@@ -588,19 +378,6 @@ namespace ATL
         public static string ReadNullTerminatedString(Stream s, Encoding encoding)
         {
             return readNullTerminatedString(s, encoding, 0, false);
-        }
-
-        /// <summary>
-        /// Read a null-terminated String from the given BinaryReader, according to the given Encoding, within a given limit of bytes
-        /// Returns with the BinaryReader positioned at (start+limit)
-        /// </summary>
-        /// <param name="r">BinaryReader positioned at the beginning of the String to be read</param>
-        /// <param name="encoding">Encoding to use for reading the stream</param>
-        /// <param name="limit">Maximum number of bytes to read</param>
-        /// <returns>Read value</returns>
-        public static string ReadNullTerminatedStringFixed(BinaryReader r, Encoding encoding, int limit)
-        {
-            return readNullTerminatedString(r.BaseStream, encoding, limit, true);
         }
 
         /// <summary>
@@ -626,7 +403,7 @@ namespace ATL
         /// <returns>The string read, without the zeroes at its end</returns>
         private static string readNullTerminatedString(Stream r, Encoding encoding, int limit, bool moveStreamToLimit)
         {
-            int nbChars = (encoding.Equals(Encoding.BigEndianUnicode) || encoding.Equals(Encoding.Unicode)) ? 2 : 1;
+            int nbChars = encoding.Equals(Encoding.BigEndianUnicode) || encoding.Equals(Encoding.Unicode) ? 2 : 1;
             byte[] readBytes = new byte[limit > 0 ? limit : 100];
             byte[] buffer = new byte[2];
             int nbRead = 0;
@@ -634,22 +411,22 @@ namespace ATL
             long initialPos = r.Position;
             long streamPos = initialPos;
 
-            while (streamPos < streamLength && ((0 == limit) || (nbRead < limit)))
+            while (streamPos < streamLength && (0 == limit || nbRead < limit))
             {
                 // Read the size of a character
-                r.Read(buffer, 0, nbChars);
+                if (r.Read(buffer, 0, nbChars) < nbChars) break;
 
-                if ((1 == nbChars) && (0 == buffer[0])) // Null character read for single-char encodings
+                if (1 == nbChars && 0 == buffer[0]) // Null character read for single-char encodings
                 {
                     break;
                 }
-                else if ((2 == nbChars) && (0 == buffer[0]) && (0 == buffer[1])) // Null character read for two-char encodings
+                else if (2 == nbChars && 0 == buffer[0] && 0 == buffer[1]) // Null character read for two-char encodings
                 {
                     break;
                 }
                 else // All clear; store the read char in the byte array
                 {
-                    if (readBytes.Length < nbRead + nbChars) Array.Resize<byte>(ref readBytes, readBytes.Length + 100);
+                    if (readBytes.Length < nbRead + nbChars) Array.Resize(ref readBytes, readBytes.Length + 100);
 
                     readBytes[nbRead] = buffer[0];
                     if (2 == nbChars) readBytes[nbRead + 1] = buffer[1];
@@ -678,7 +455,7 @@ namespace ATL
 
             for (int i = 0; i < bytes.Length; i++)
             {
-                result += bytes[i] * (int)Math.Floor(Math.Pow(2, (7 * (bytes.Length - 1 - i))));
+                result += bytes[i] * (int)Math.Floor(Math.Pow(2, 7 * (bytes.Length - 1 - i)));
             }
             return result;
         }
@@ -710,13 +487,12 @@ namespace ATL
         /// <returns>Encoded array of bytes</returns>
         public static byte[] EncodeSynchSafeInt(int value, int nbBytes)
         {
-            if ((nbBytes < 1) || (nbBytes > 5)) throw new ArgumentException("nbBytes has to be 1 to 5; found : " + nbBytes);
+            if (nbBytes < 1 || nbBytes > 5) throw new ArgumentException("nbBytes has to be 1 to 5; found : " + nbBytes);
             byte[] result = new byte[nbBytes];
-            int range;
 
             for (int i = 0; i < nbBytes; i++)
             {
-                range = (7 * (nbBytes - 1 - i));
+                int range = 7 * (nbBytes - 1 - i);
                 result[i] = (byte)((value & (0x7F << range)) >> range);
             }
 
@@ -757,20 +533,21 @@ namespace ATL
             int BUFFER_SIZE = 512;
             byte[] readBuffer = new byte[BUFFER_SIZE];
 
-            int remainingBytes, bytesToRead;
+            int bytesToRead;
             int iSequence = 0;
             int readBytes = 0;
+            int read;
             long initialPos = stream.Position;
 
-            remainingBytes = (int)((limit > 0) ? Math.Min(stream.Length - stream.Position, limit) : stream.Length - stream.Position);
+            int remainingBytes = (int)((limit > 0) ? Math.Min(stream.Length - stream.Position, limit) : stream.Length - stream.Position);
 
             while (remainingBytes > 0)
             {
                 bytesToRead = Math.Min(remainingBytes, BUFFER_SIZE);
 
-                stream.Read(readBuffer, 0, bytesToRead);
+                read = stream.Read(readBuffer, 0, bytesToRead);
 
-                for (int i = 0; i < bytesToRead; i++)
+                for (int i = 0; i < read; i++)
                 {
                     if (sequence[iSequence] == readBuffer[i]) iSequence++;
                     else if (iSequence > 0) iSequence = 0;
@@ -783,7 +560,7 @@ namespace ATL
                 }
 
                 remainingBytes -= bytesToRead;
-                readBytes += bytesToRead;
+                readBytes += read;
             }
 
             // If we're here, the sequence hasn't been found
@@ -808,11 +585,27 @@ namespace ATL
 
             // Read a number of bits from file at the given position
             source.Seek(bitPosition / 8, SeekOrigin.Begin); // integer division =^ div
-            source.Read(buffer, 0, buffer.Length);
-            uint result = (uint)((buffer[0] << 24) + (buffer[1] << 16) + (buffer[2] << 8) + buffer[3]);
+            if (source.Read(buffer, 0, buffer.Length) < buffer.Length) return 0;
+            uint result = DecodeBEUInt32(buffer);
             result = (result << (bitPosition % 8)) >> (32 - bitCount);
 
             return result;
+        }
+
+        /// <summary>
+        /// Extracts a little-endian integer from the given byte array, using the given bits position and length
+        /// Credits go to https://stackoverflow.com/questions/63788666/c-sharp-fastest-method-get-integer-from-part-of-bits
+        /// </summary>
+        public static int ReadBits(byte[] source, int offset, int length)
+        {
+            if (source.Length > 4) throw new NotSupportedException("Only supports 32-bit input or less");
+            if (offset + length > source.Length * 8) throw new NotSupportedException("Incompatible parameters");
+
+            byte[] intBytes = new byte[4];
+            source.CopyTo(intBytes, 0);
+            int full = DecodeInt32(intBytes);
+            int mask = (1 << length) - 1;
+            return (full >> offset) & mask;
         }
 
         public static void WriteBytes(Stream s, byte[] data)
@@ -820,34 +613,40 @@ namespace ATL
             s.Write(data, 0, data.Length);
         }
 
-        public static void WriteUInt16(Stream s, ushort data)
+        public static void WriteUInt16(Stream s, ushort data, Span<byte> buffer)
         {
-            s.Write(EncodeUInt16(data), 0, 2);
+            BinaryPrimitives.WriteUInt16LittleEndian(buffer, data);
+            s.Write(buffer[..2]);
         }
 
-        public static void WriteInt32(Stream s, int data)
+        public static void WriteInt32(Stream s, int data, Span<byte> buffer)
         {
-            s.Write(EncodeInt32(data), 0, 4);
+            BinaryPrimitives.WriteInt32LittleEndian(buffer, data);
+            s.Write(buffer[..4]);
         }
 
-        public static void WriteUInt32(Stream s, uint data)
+        public static void WriteUInt32(Stream s, uint data, Span<byte> buffer)
         {
-            s.Write(EncodeUInt32(data), 0, 4);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer, data);
+            s.Write(buffer[..4]);
         }
 
-        public static void WriteBEInt32(Stream s, int data)
+        public static void WriteBEInt32(Stream s, int data, Span<byte> buffer)
         {
-            s.Write(EncodeBEInt32(data), 0, 4);
+            BinaryPrimitives.WriteInt32BigEndian(buffer, data);
+            s.Write(buffer[..4]);
         }
 
-        public static void WriteBEUInt32(Stream s, uint data)
+        public static void WriteBEUInt32(Stream s, uint data, Span<byte> buffer)
         {
-            s.Write(EncodeBEUInt32(data), 0, 4);
+            BinaryPrimitives.WriteUInt32BigEndian(buffer, data);
+            s.Write(buffer[..4]);
         }
 
-        public static void WriteUInt64(Stream s, ulong data)
+        public static void WriteUInt64(Stream s, ulong data, Span<byte> buffer)
         {
-            s.Write(EncodeUInt64(data), 0, 8);
+            BinaryPrimitives.WriteUInt64LittleEndian(buffer, data);
+            s.Write(buffer[..8]);
         }
 
 
@@ -869,7 +668,7 @@ namespace ATL
             // IEEE754/numerical_comp_guide/ncg_math.doc.html
             int s = extended[9] >> 7;
 
-            int e = (((extended[9] & 0x7f) << 8) | (extended[8]));
+            int e = ((extended[9] & 0x7f) << 8) | extended[8];
 
             int j = extended[7] >> 7;
             long f = extended[7] & 0x7f;
@@ -900,8 +699,7 @@ namespace ATL
                     e += 1023 - 16383;
 
                     // Out of range - too large
-                    if (e > 2047)
-                        return Double.NaN;
+                    if (e > 2047) return Double.NaN;
 
                     // Out of range - too small
                     if (e < 0)
@@ -1008,10 +806,10 @@ namespace ATL
         {
             byte[] data = new byte[Settings.FileBufferSize];
             long initialPos = source.Position;
-            int read, readTotal = 0;
+            int readTotal = 0;
             int lastValue = -1;
 
-            read = source.Read(data, 0, Settings.FileBufferSize);
+            int read = source.Read(data, 0, Settings.FileBufferSize);
             while (read > 0)
             {
                 for (int i = 0; i < read; i++)
@@ -1043,7 +841,7 @@ namespace ATL
                 nbBytes++;
             }
             while (dataToSkip.Contains(b));
-            source.Position = source.Position - 1;
+            source.Position -= 1;
             return nbBytes;
         }
 
@@ -1067,8 +865,163 @@ namespace ATL
                 isFirst = false;
             }
             while (dataToSkip.Contains(b));
-            source.Position = source.Position + 1;
+            source.Position += 1;
             return nbBytes;
+        }
+
+        /// <summary>
+        /// Copies a given number of bytes from a given stream to another, starting at current stream positions
+        /// i.e. first byte will be read at from.Position and written at to.Position
+        /// NB : This method cannot be used to move data within one single stream; use CopySameStream instead
+        /// </summary>
+        /// <param name="from">Stream to start copy from</param>
+        /// <param name="to">Stream to copy to</param>
+        /// <param name="length">Number of bytes to copy (optional; default = 0 = all bytes until the end of the 'from' stream)</param>
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
+        public static async Task CopyStreamAsync(Stream from, Stream to, long length = 0)
+        {
+            byte[] data = new byte[Settings.FileBufferSize];
+            int bytesToRead;
+            int totalBytesRead = 0;
+
+            while (true)
+            {
+                if (length > 0)
+                {
+                    if (totalBytesRead + Settings.FileBufferSize < length) bytesToRead = Settings.FileBufferSize; else bytesToRead = toInt(length - totalBytesRead);
+                }
+                else // Read everything we can
+                {
+                    bytesToRead = Settings.FileBufferSize;
+                }
+                int bytesRead = await from.ReadAsync(data, 0, bytesToRead);
+                if (bytesRead == 0)
+                {
+                    break;
+                }
+                await to.WriteAsync(data, 0, bytesRead);
+                totalBytesRead += bytesRead;
+            }
+        }
+
+        /// <summary>
+        /// Copy data between the two given offsets within the given stream
+        /// </summary>
+        /// <param name="s">Stream to process</param>
+        /// <param name="offsetFrom">Starting offset to copy data from</param>
+        /// <param name="offsetTo">Starting offset to copy data to</param>
+        /// <param name="length">Length of the data to copy</param>
+        /// <param name="progress">Progress feedback to report with</param>
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
+        public static async Task CopySameStreamAsync(Stream s, long offsetFrom, long offsetTo, long length, ProgressToken<float> progress = null)
+        {
+            await CopySameStreamAsync(s, offsetFrom, offsetTo, length, Settings.FileBufferSize, progress);
+        }
+
+        /// <summary>
+        /// Copy data between the two given offsets within the given stream, using the given buffer size
+        /// </summary>
+        /// <param name="s">Stream to process</param>
+        /// <param name="offsetFrom">Starting offset to copy data from</param>
+        /// <param name="offsetTo">Starting offset to copy data to</param>
+        /// <param name="length">Length of the data to copy</param>
+        /// <param name="bufferSize">Buffer size to use during the operation</param>
+        /// <param name="progress">Progress feedback to report with</param>
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
+        public static async Task CopySameStreamAsync(Stream s, long offsetFrom, long offsetTo, long length, int bufferSize, ProgressToken<float> progress = null)
+        {
+            if (offsetFrom == offsetTo) return;
+
+            byte[] data = new byte[bufferSize];
+            long written = 0;
+            bool forward = offsetTo > offsetFrom;
+            long nbIterations = (long)Math.Ceiling(length * 1f / bufferSize);
+            long resolution = (long)Math.Ceiling(nbIterations / 10f);
+            long iteration = 0;
+            int read;
+
+            while (written < length)
+            {
+                int toRead = Math.Min(bufferSize, toInt(length - written));
+                if (forward)
+                {
+                    s.Seek(offsetFrom + length - written - toRead, SeekOrigin.Begin);
+                    read = await s.ReadAsync(data, 0, toRead);
+                    s.Seek(offsetTo + length - written - read, SeekOrigin.Begin);
+                }
+                else
+                {
+                    s.Seek(offsetFrom + written, SeekOrigin.Begin);
+                    read = await s.ReadAsync(data, 0, toRead);
+                    s.Seek(offsetTo + written, SeekOrigin.Begin);
+                }
+                await s.WriteAsync(data, 0, read);
+                written += toRead;
+
+                if (progress != null)
+                {
+                    iteration++;
+                    if (0 == iteration % resolution) progress.Report((float)iteration / nbIterations);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Remove a portion of bytes within the given stream
+        /// </summary>
+        /// <param name="s">Stream to process; must be accessible for reading and writing</param>
+        /// <param name="endOffset">End offset of the portion of bytes to remove</param>
+        /// <param name="delta">Number of bytes to remove</param>
+        /// <param name="progress">Progress feedback to report with</param>
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
+        public static async Task ShortenStreamAsync(Stream s, long endOffset, uint delta, ProgressToken<float> progress = null)
+        {
+            await CopySameStreamAsync(s, endOffset, endOffset - delta, s.Length - endOffset, progress);
+
+            s.SetLength(s.Length - delta);
+        }
+
+        /// <summary>
+        /// Add bytes within the given stream
+        /// </summary>
+        /// <param name="s">Stream to process; must be accessible for reading and writing</param>
+        /// <param name="oldIndex">Offset where to add new bytes</param>
+        /// <param name="delta">Number of bytes to add</param>
+        /// <param name="fillZeroes">If true, new bytes will all be zeroes (optional; default = false)</param>
+        /// <param name="progress">Progress feedback to report with</param>
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
+        public static async Task LengthenStreamAsync(Stream s, long oldIndex, uint delta, bool fillZeroes = false, ProgressToken<float> progress = null)
+        {
+            await CopySameStreamAsync(s, oldIndex, oldIndex + delta, s.Length - oldIndex, progress);
+
+            if (fillZeroes)
+            {
+                long newIndex = oldIndex + delta;
+                // Fill the location of old copied data with zeroes
+                s.Seek(oldIndex, SeekOrigin.Begin);
+                for (long i = oldIndex; i < newIndex; i++) s.WriteByte(0);
+            }
+        }
+
+        /// <summary>
+        /// Write the given data into the given stream
+        /// </summary>
+        /// <param name="s">Stream to write to</param>
+        /// <param name="data">bytes to write</param>
+        /// <returns>Generic Task for async compliance</returns>
+        public static async Task WriteBytesAsync(Stream s, byte[] data)
+        {
+            await s.WriteAsync(data.AsMemory(0, data.Length));
+        }
+
+        /// <summary>
+        /// Copy the given source file to the given destination
+        /// </summary>
+        public static async Task CopyFileAsync(string sourceFile, string destinationFile)
+        {
+            await using var sourceStream = new FileStream(sourceFile, FileMode.Open, FileAccess.Read, FileShare.Read, 8 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await using var destinationStream = new FileStream(destinationFile, FileMode.CreateNew, FileAccess.Write, FileShare.None, 8 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await sourceStream.CopyToAsync(destinationStream);
         }
     }
 }

@@ -146,7 +146,7 @@ namespace ATL.AudioData.IO
         }
 
         #region instruments
-        private static readonly string[] instrumentList = new string[128] { "Piano",
+        private static readonly string[] instrumentList = new string[] { "Piano",
                                                               "Bright Piano",
                                                               "Electric Grand",
                                                               "Honky Tonk Piano",
@@ -283,11 +283,7 @@ namespace ATL.AudioData.IO
 
         private StringBuilder comment;
 
-        private double duration;
-        private double bitrate;
-
         private SizeInfo sizeInfo;
-        private readonly string filePath;
 
 
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
@@ -299,24 +295,29 @@ namespace ATL.AudioData.IO
         /// <inheritdoc/>
         public bool IsVBR => false;
         /// <inheritdoc/>
-        public Format AudioFormat
-        {
-            get;
-        }
+        public AudioFormat AudioFormat { get; }
         /// <inheritdoc/>
         public int CodecFamily => AudioDataIOFactory.CF_SEQ;
         /// <inheritdoc/>
-        public string FileName => filePath;
+        public string FileName { get; }
+
         /// <inheritdoc/>
-        public double BitRate => bitrate;
+        public double BitRate { get; private set; }
+
         /// <inheritdoc/>
         public int BitDepth => -1; // Irrelevant for that format
         /// <inheritdoc/>
-        public double Duration => duration;
+        public double Duration { get; private set; }
+
         /// <inheritdoc/>
         public ChannelsArrangement ChannelsArrangement => STEREO;
         /// <inheritdoc/>
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType) => metaDataType == MetaDataIOFactory.TagType.NATIVE; // Only for comments
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
+        {
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.NATIVE }; // Only for comments
+        }
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
         /// <inheritdoc/>
         public long AudioDataOffset { get; set; }
         /// <inheritdoc/>
@@ -343,8 +344,8 @@ namespace ATL.AudioData.IO
         /// </summary>
         protected void resetData()
         {
-            duration = 0;
-            bitrate = 0;
+            Duration = 0;
+            BitRate = 0;
             AudioDataOffset = -1;
             AudioDataSize = 0;
 
@@ -356,9 +357,9 @@ namespace ATL.AudioData.IO
         /// </summary>
         /// <param name="filePath">File path</param>
         /// <param name="format">Audio format</param>
-        public Midi(string filePath, Format format)
+        public Midi(string filePath, AudioFormat format)
         {
-            this.filePath = filePath;
+            this.FileName = filePath;
             AudioFormat = format;
             resetData();
         }
@@ -411,9 +412,9 @@ namespace ATL.AudioData.IO
 		****************************************************************************/
 
         /// <inheritdoc/>
-        public bool Read(Stream source, SizeInfo sizeInfo, ReadTagParams readTagParams)
+        public bool Read(Stream source, SizeInfo sizeNfo, ReadTagParams readTagParams)
         {
-            this.sizeInfo = sizeInfo;
+            this.sizeInfo = sizeNfo;
 
             return read(source, readTagParams);
         }
@@ -440,12 +441,11 @@ namespace ATL.AudioData.IO
             FindValidHeader(source);
 
             // Ready to read header data...
-            source.Read(buffer, 0, buffer.Length);
-            if ((buffer[0] != 0) ||
-                (buffer[1] != 0) ||
-                (buffer[2] != 0) ||
-                (buffer[3] != 6)
-                )
+            if (source.Read(buffer, 0, buffer.Length) < buffer.Length) return false;
+            if (buffer[0] != 0 ||
+                buffer[1] != 0 ||
+                buffer[2] != 0 ||
+                buffer[3] != 6)
             {
                 LogDelegator.GetLogDelegate()(Log.LV_ERROR, "Wrong MIDI header");
                 return false;
@@ -461,13 +461,10 @@ namespace ATL.AudioData.IO
                 LogDelegator.GetLogDelegate()(Log.LV_WARNING, "SMF type 2 MIDI files are partially supported; results may be approximate");
             }
 
-            tagExists = true;
-
             timebase = (buffer[8] << 8) + buffer[9];
 
             tempo = 0; // maybe (hopefully!) overwritten by parseTrack
 
-            int trackSize;
             int nbTrack = 0;
             comment = new StringBuilder("");
 
@@ -478,7 +475,7 @@ namespace ATL.AudioData.IO
             // Ready to read track data...
             while (source.Position < sizeInfo.FileSize - 4)
             {
-                source.Read(buffer, 0, 4);
+                if (source.Read(buffer, 0, 4) < 4) return false;
                 trigger = Utils.Latin1Encoding.GetString(buffer, 0, 4);
 
                 if (trigger != MIDI_TRACK_HEADER)
@@ -488,11 +485,11 @@ namespace ATL.AudioData.IO
                 }
 
                 // trackSize is stored in big endian -> needs inverting
-                source.Read(buffer, 0, 4);
-                trackSize = StreamUtils.DecodeBEInt32(buffer);
+                if (source.Read(buffer, 0, 4) < 4) return false;
+                var trackSize = StreamUtils.DecodeBEInt32(buffer);
 
                 byte[] trackData = new byte[trackSize];
-                source.Read(trackData, 0, trackSize);
+                if (source.Read(trackData, 0, trackSize) < trackSize) return false;
                 m_tracks.Add(parseTrack(trackData, nbTrack));
                 nbTrack++;
             }
@@ -502,8 +499,8 @@ namespace ATL.AudioData.IO
             if (comment.Length > 0) comment.Remove(comment.Length - 1, 1);
             tagData.IntegrateValue(TagData.Field.COMMENT, comment.ToString());
 
-            duration = getDuration();
-            bitrate = sizeInfo.FileSize / duration;
+            Duration = getDuration();
+            BitRate = sizeInfo.FileSize / Duration;
 
             return true;
         }
@@ -952,15 +949,13 @@ namespace ATL.AudioData.IO
         // variable length string to int (+repositioning)
         //---------------------------------------------------------------
         //# TO LOOK AFTER CAREFULLY <.<
-        private int readVarLen(ref byte[] data, ref int pos)
+        private static int readVarLen(ref byte[] data, ref int pos)
         {
-            int value;
-            int c;
-
-            value = data[pos++];
+            int value = data[pos++];
             if ((value & 0x80) != 0)
             {
                 value &= 0x7F;
+                int c;
                 do
                 {
                     c = data[pos++];

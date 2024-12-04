@@ -28,6 +28,7 @@ namespace ATL.AudioData.IO
 
         // Effects
 #pragma warning disable S1144 // Unused private types or members should be removed
+#pragma warning disable IDE0051 // Remove unused private members
         private const byte EFFECT_POSITION_JUMP = 0xB;
         private const byte EFFECT_PATTERN_BREAK = 0xD;
         private const byte EFFECT_SET_SPEED = 0xF;
@@ -38,9 +39,10 @@ namespace ATL.AudioData.IO
         private const byte EFFECT_NOTE_DELAY = 0xD;
         private const byte EFFECT_PATTERN_DELAY = 0xE;
         private const byte EFFECT_INVERT_LOOP = 0xF;
+#pragma warning restore IDE0051 // Remove unused private members
 #pragma warning restore S1144 // Unused private types or members should be removed
 
-        private static IDictionary<String, ModFormat> modFormats = new Dictionary<string, ModFormat>()
+        private static readonly IDictionary<string, ModFormat> modFormats = new Dictionary<string, ModFormat>
         {
             { "M.K.", new ModFormat("ProTracker", "M.K.", 31, 4) },
             { "M!K!", new ModFormat("ProTracker", "M!K!", 31, 4) },
@@ -92,12 +94,8 @@ namespace ATL.AudioData.IO
         private string formatTag;
         private byte nbChannels;
 
-        private double bitrate;
-        private double duration;
-
         private SizeInfo sizeInfo;
-        private readonly string filePath;
-        private readonly Format audioFormat;
+        private readonly AudioFormat audioFormat;
 
 
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
@@ -108,13 +106,13 @@ namespace ATL.AudioData.IO
         /// <inheritdoc/>
         public bool IsVBR => false;
         /// <inheritdoc/>
-        public Format AudioFormat
+        public AudioFormat AudioFormat
         {
             get
             {
-                Format f = new Format(audioFormat);
-                if (modFormats.ContainsKey(formatTag))
-                    f.Name = f.Name + " (" + modFormats[formatTag].Name + ")";
+                AudioFormat f = new AudioFormat(audioFormat);
+                if (modFormats.TryGetValue(formatTag, out var format))
+                    f.Name = f.Name + " (" + format.Name + ")";
                 else
                     f.Name = f.Name + " (Unknown)";
                 return f;
@@ -123,17 +121,25 @@ namespace ATL.AudioData.IO
         /// <inheritdoc/>
         public int CodecFamily => AudioDataIOFactory.CF_SEQ_WAV;
         /// <inheritdoc/>
-        public string FileName => filePath;
+        public string FileName { get; }
+
         /// <inheritdoc/>
-        public double BitRate => bitrate;
+        public double BitRate { get; private set; }
+
         /// <inheritdoc/>
         public int BitDepth => -1; // Irrelevant for that format
         /// <inheritdoc/>
-        public double Duration => duration;
+        public double Duration { get; private set; }
+
         /// <inheritdoc/>
         public ChannelsArrangement ChannelsArrangement => STEREO;
         /// <inheritdoc/>
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType) => metaDataType == MetaDataIOFactory.TagType.NATIVE;
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
+        {
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.NATIVE };
+        }
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
 
         public long AudioDataOffset { get; set; }
         public long AudioDataSize { get; set; }
@@ -193,8 +199,8 @@ namespace ATL.AudioData.IO
 
         private void resetData()
         {
-            duration = 0;
-            bitrate = 0;
+            Duration = 0;
+            BitRate = 0;
 
             FSamples = new List<Sample>();
             FPatterns = new List<IList<IList<int>>>();
@@ -208,9 +214,9 @@ namespace ATL.AudioData.IO
             ResetData();
         }
 
-        public MOD(string filePath, Format format)
+        public MOD(string filePath, AudioFormat format)
         {
-            this.filePath = filePath;
+            this.FileName = filePath;
             this.audioFormat = format;
             resetData();
         }
@@ -349,9 +355,9 @@ namespace ATL.AudioData.IO
 
         // === PUBLIC METHODS ===
 
-        public bool Read(Stream source, SizeInfo sizeInfo, ReadTagParams readTagParams)
+        public bool Read(Stream source, SizeInfo sizeNfo, ReadTagParams readTagParams)
         {
-            this.sizeInfo = sizeInfo;
+            this.sizeInfo = sizeNfo;
 
             return read(source, readTagParams);
         }
@@ -379,8 +385,6 @@ namespace ATL.AudioData.IO
             {
                 throw new InvalidDataException("MOD files compressed with PowerPacker are not supported yet");
             }
-
-            tagExists = true;
 
             // Restart from beginning, else parser might miss empty titles
             reader.Seek(0, SeekOrigin.Begin);
@@ -466,7 +470,7 @@ namespace ATL.AudioData.IO
 
             // == Computing track properties
 
-            duration = calculateDuration();
+            Duration = calculateDuration();
             foreach (var aSample in FSamples.Where(aSample => aSample.Name.Length > 0))
             {
                 comment.Append(aSample.Name).Append(Settings.InternalValueSeparator);
@@ -476,7 +480,7 @@ namespace ATL.AudioData.IO
 
             tagData.IntegrateValue(Field.COMMENT, comment.ToString());
 
-            bitrate = sizeInfo.FileSize / duration;
+            BitRate = sizeInfo.FileSize / Duration;
 
             return result;
         }

@@ -2,8 +2,8 @@ using ATL.Logging;
 using Commons;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using static ATL.TagData;
 
@@ -48,7 +48,7 @@ namespace ATL.AudioData.IO
          *      - Disc number : "disc", "discnumber" frames
          *      - Album Artist : "albumartist", "album artist" frames
          */
-        private static readonly IDictionary<string, Field> frameMapping = new Dictionary<string, Field>()
+        private static readonly IDictionary<string, Field> frameMapping = new Dictionary<string, Field>
         {
             { "TITLE", Field.TITLE },
             { "ARTIST", Field.ARTIST },
@@ -66,7 +66,38 @@ namespace ATL.AudioData.IO
             { "ALBUMARTIST", Field.ALBUM_ARTIST },
             { "ALBUM ARTIST", Field.ALBUM_ARTIST },
             { "CONDUCTOR", Field.CONDUCTOR },
-            { "Lyrics", Field.LYRICS_UNSYNCH }
+            { "LYRICS", Field.LYRICS_UNSYNCH },
+            { "PUBLISHER", Field.PUBLISHER },
+            { "BPM", Field.BPM },
+            { "ENCODEDBY", Field.ENCODED_BY },
+            { "LANGUAGE", Field.LANGUAGE },
+            { "ISRC", Field.ISRC },
+            { "CATALOGNUMBER", Field.CATALOG_NUMBER },
+            { "LYRICIST", Field.LYRICIST }
+        };
+
+        private static readonly IDictionary<PictureInfo.PIC_TYPE, string> picMapping = new Dictionary<PictureInfo.PIC_TYPE, string>
+        {
+            { PictureInfo.PIC_TYPE.Icon, "Cover Art (Icon)"},
+            { PictureInfo.PIC_TYPE.Front, "Cover Art (Front)"},
+            { PictureInfo.PIC_TYPE.Back, "Cover Art (Back)"},
+            { PictureInfo.PIC_TYPE.Leaflet, "Cover Art (Leaflet)"},
+            { PictureInfo.PIC_TYPE.CD, "Cover Art (Media)"},
+            { PictureInfo.PIC_TYPE.LeadArtist, "Cover Art (Lead artist)"},
+            { PictureInfo.PIC_TYPE.Artist, "Cover Art (Artist)"},
+            { PictureInfo.PIC_TYPE.Conductor, "Cover Art (Conductor)"},
+            { PictureInfo.PIC_TYPE.Band, "Cover Art (Band)"},
+            { PictureInfo.PIC_TYPE.Composer, "Cover Art (Composer)"},
+            { PictureInfo.PIC_TYPE.Lyricist, "Cover Art (Lyricist)"},
+            { PictureInfo.PIC_TYPE.RecordingLocation, "Cover Art (Recording location)"},
+            { PictureInfo.PIC_TYPE.DuringRecording, "Cover Art (During recording)"},
+            { PictureInfo.PIC_TYPE.DuringPerformance, "Cover Art (During performance)"},
+            { PictureInfo.PIC_TYPE.MovieCapture, "Cover Art (Movie capture)"},
+            { PictureInfo.PIC_TYPE.Fishie, "Cover Art (A bright coloured fish)"},
+            { PictureInfo.PIC_TYPE.Illustration, "Cover Art (Illustration)"},
+            { PictureInfo.PIC_TYPE.BandLogo, "Cover Art (Band logotype)"},
+            { PictureInfo.PIC_TYPE.PublisherLogo, "Cover Art (Publisher logotype)"},
+            { PictureInfo.PIC_TYPE.Generic, "Cover Art (Other)"}
         };
 
 
@@ -112,9 +143,9 @@ namespace ATL.AudioData.IO
             get
             {
                 Format format = new Format(MetaDataIOFactory.GetInstance().getFormatsFromPath("ape")[0]);
-                format.Name = format.Name + " v" + tagVersion / 1000f;
-                format.ID += tagVersion / 10; // e.g. 1250 -> 125
-                return new List<Format>(new Format[1] { format });
+                format.Name = format.Name + " v" + m_tagVersion / 1000f;
+                format.ID += m_tagVersion / 10; // e.g. 1250 -> 125
+                return new List<Format>(new[] { format });
             }
         }
 
@@ -133,10 +164,7 @@ namespace ATL.AudioData.IO
         }
 
         /// <inheritdoc/>
-        protected override byte ratingConvention
-        {
-            get { return RC_APE; }
-        }
+        protected override byte ratingConvention => RC_APE;
 
         /// <inheritdoc/>
         protected override Field getFrameMapping(string zone, string ID, byte tagVersion)
@@ -145,16 +173,15 @@ namespace ATL.AudioData.IO
             ID = ID.Replace("\0", "").ToUpper();
 
             // Finds the ATL field identifier according to the APE version
-            if (frameMapping.ContainsKey(ID)) supportedMetaId = frameMapping[ID];
+            if (frameMapping.TryGetValue(ID, out var value)) supportedMetaId = value;
 
             return supportedMetaId;
         }
 
         // ********************* Auxiliary functions & voids ********************
 
-        private bool readFooter(BufferedBinaryReader source, TagInfo Tag)
+        private static bool readFooter(BufferedBinaryReader source, TagInfo Tag)
         {
-            string tagID;
             bool result = true;
 
             // Load footer from file to variable
@@ -162,14 +189,14 @@ namespace ATL.AudioData.IO
 
             // Check for existing ID3v1 tag in order to get the correct offset for APEtag packet
             source.Seek(Tag.FileSize - ID3v1.ID3V1_TAG_SIZE, SeekOrigin.Begin);
-            tagID = Utils.Latin1Encoding.GetString(source.ReadBytes(3));
+            var tagID = Utils.Latin1Encoding.GetString(source.ReadBytes(3));
             if (ID3v1.ID3V1_ID.Equals(tagID)) Tag.DataShift = ID3v1.ID3V1_TAG_SIZE;
 
             // Read APEtag footer data
             source.Seek(Tag.FileSize - Tag.DataShift - APE_TAG_FOOTER_SIZE, SeekOrigin.Begin);
 
             Tag.ID = Utils.Latin1Encoding.GetChars(source.ReadBytes(8));
-            if (StreamUtils.StringEqualsArr(APE_ID, Tag.ID))
+            if (APE_ID.SequenceEqual(Tag.ID))
             {
                 Tag.Version = source.ReadInt32();
                 Tag.Size = source.ReadInt32();
@@ -185,22 +212,20 @@ namespace ATL.AudioData.IO
             return result;
         }
 
-        private bool readFrames(BufferedBinaryReader source, TagInfo Tag, MetaDataIO.ReadTagParams readTagParams)
+        private bool readFrames(BufferedBinaryReader source, TagInfo Tag, ReadTagParams readTagParams)
         {
-            string frameName;
-            string strValue;
-            int frameDataSize;
-            long valuePosition;
-
             source.Seek(Tag.FileSize - Tag.DataShift - Tag.Size, SeekOrigin.Begin);
+
+            var picValuesLower = picMapping.Values.Select(v => v.ToLower()).ToHashSet();
+
             // Read all stored fields
             for (int iterator = 0; iterator < Tag.FrameCount; iterator++)
             {
-                frameDataSize = source.ReadInt32();
+                var frameDataSize = source.ReadInt32();
                 source.Seek(4, SeekOrigin.Current); // Frame flags
-                frameName = StreamUtils.ReadNullTerminatedString(source, Utils.Latin1Encoding); // Slightly more permissive than what APE specs indicate in terms of allowed characters ("Space(0x20), Slash(0x2F), Digits(0x30...0x39), Letters(0x41...0x5A, 0x61...0x7A)")
+                var frameName = StreamUtils.ReadNullTerminatedString(source, Utils.Latin1Encoding);
 
-                valuePosition = source.Position;
+                var valuePosition = source.Position;
 
                 if (frameDataSize < 0 || valuePosition + frameDataSize > Tag.FileSize)
                 {
@@ -208,44 +233,50 @@ namespace ATL.AudioData.IO
                     return false;
                 }
 
-                if ((frameDataSize > 0) && (frameDataSize <= 1000))
+                if (frameDataSize > 0)
                 {
-                    /* 
-                     * According to spec : "Items are not zero-terminated like in C / C++.
-                     * If there's a zero character, multiple items are stored under the key and the items are separated by zero characters."
-                     * 
-                     * => Values have to be splitted
-                     */
-                    strValue = Utils.StripEndingZeroChars(Settings.DefaultTextEncoding.GetString(source.ReadBytes(frameDataSize)));
-                    strValue = strValue.Replace('\0', Settings.InternalValueSeparator).Trim();
-                    SetMetaField(frameName.Trim().ToUpper(), strValue, readTagParams.ReadAllMetaFrames);
-                }
-                else if (frameDataSize > 0 && !frameName.ToLower().Contains("lyrics")) // Size > 1000 => Probably an embedded picture
-                {
-                    int picturePosition;
-                    PictureInfo.PIC_TYPE picType = decodeAPEPictureType(frameName);
+                    var frameNameLow = frameName.ToLower();
+                    var isPicture = picValuesLower.Contains(frameNameLow) ||
+                                    (frameDataSize > 1000 && !frameNameLow.Contains("lyrics") && !frameNameLow.Equals("logfile"));
+                    if (!isPicture)
+                    {
+                        /*
+                         * According to spec : "Items are not zero-terminated like in C / C++.
+                         * If there's a zero character, multiple items are stored under the key and the items are separated by zero characters."
+                         *
+                         * => Values have to be splitted
+                         */
+                        // Using Settings encoding to support rogue APE tags that use exotic charsets (though specs clearly say UTF-8)
+                        var strValue =
+                            Utils.StripEndingZeroChars(
+                                Settings.DefaultTextEncoding.GetString(source.ReadBytes(frameDataSize)));
+                        strValue = strValue.Replace('\0', Settings.InternalValueSeparator).Trim();
+                        SetMetaField(frameName.Trim().ToUpper(), strValue, readTagParams.ReadAllMetaFrames);
+                    }
+                    else // Pictures
+                    {
+                        PictureInfo.PIC_TYPE picType = decodeAPEPictureType(frameName);
 
-                    if (picType.Equals(PictureInfo.PIC_TYPE.Unsupported))
-                    {
-                        picturePosition = takePicturePosition(getImplementedTagType(), frameName);
-                    }
-                    else
-                    {
-                        picturePosition = takePicturePosition(picType);
-                    }
+                        var picturePosition = picType.Equals(PictureInfo.PIC_TYPE.Unsupported)
+                            ? takePicturePosition(getImplementedTagType(), frameName)
+                            : takePicturePosition(picType);
 
-                    if (readTagParams.ReadPictures)
-                    {
-                        // Description seems to be a null-terminated ANSI string containing 
-                        //    * The frame name
-                        //    * A byte (0x2E)
-                        //    * The picture type (3 characters; similar to the 2nd part of the mime-type)
-                        string description = StreamUtils.ReadNullTerminatedString(source, Utils.Latin1Encoding);
-                        PictureInfo picInfo = PictureInfo.fromBinaryData(source, frameDataSize - description.Length - 1, picType, getImplementedTagType(), frameName, picturePosition);
-                        picInfo.Description = description;
-                        tagData.Pictures.Add(picInfo);
+                        if (readTagParams.ReadPictures)
+                        {
+                            // Description seems to be a null-terminated ANSI string containing 
+                            //    * The frame name
+                            //    * A byte (0x2E)
+                            //    * The picture type (3 characters; similar to the 2nd part of the mime-type)
+                            string description = StreamUtils.ReadNullTerminatedString(source, Utils.Latin1Encoding);
+                            PictureInfo picInfo = PictureInfo.fromBinaryData(source,
+                                frameDataSize - description.Length - 1, picType, getImplementedTagType(), frameName,
+                                picturePosition);
+                            picInfo.Description = description;
+                            tagData.Pictures.Add(picInfo);
+                        }
                     }
                 }
+
                 source.Seek(valuePosition + frameDataSize, SeekOrigin.Begin);
             }
 
@@ -259,31 +290,10 @@ namespace ATL.AudioData.IO
         /// <returns>ATL picture type corresponding to the given APE picture code; PIC_TYPE.Unsupported by default</returns>
         private static PictureInfo.PIC_TYPE decodeAPEPictureType(string picCode)
         {
-            switch (picCode.Trim().ToUpper())
-            {
-                case "COVER ART":
-                case "COVER ART (OTHER)": return PictureInfo.PIC_TYPE.Generic;
-                case "COVER ART (ICON)": return PictureInfo.PIC_TYPE.Icon;
-                case "COVER ART (FRONT)": return PictureInfo.PIC_TYPE.Front;
-                case "COVER ART (BACK)": return PictureInfo.PIC_TYPE.Back;
-                case "COVER ART (LEAFLET)": return PictureInfo.PIC_TYPE.Leaflet;
-                case "COVER ART (MEDIA)": return PictureInfo.PIC_TYPE.CD;
-                case "COVER ART (LEAD ARTIST)": return PictureInfo.PIC_TYPE.LeadArtist;
-                case "COVER ART (ARTIST)": return PictureInfo.PIC_TYPE.Artist;
-                case "COVER ART (CONDUCTOR)": return PictureInfo.PIC_TYPE.Conductor;
-                case "COVER ART (BAND)": return PictureInfo.PIC_TYPE.Band;
-                case "COVER ART (COMPOSER)": return PictureInfo.PIC_TYPE.Composer;
-                case "COVER ART (LYRICIST)": return PictureInfo.PIC_TYPE.Lyricist;
-                case "COVER ART (RECORDING LOCATION)": return PictureInfo.PIC_TYPE.RecordingLocation;
-                case "COVER ART (DURING RECORDING)": return PictureInfo.PIC_TYPE.DuringRecording;
-                case "COVER ART (DURING PERFORMANCE)": return PictureInfo.PIC_TYPE.DuringPerformance;
-                case "COVER ART (MOVIE CAPTURE)": return PictureInfo.PIC_TYPE.MovieCapture;
-                case "COVER ART (A BRIGHT COLOURED FISH)": return PictureInfo.PIC_TYPE.Fishie;
-                case "COVER ART (ILLUSTRATION)": return PictureInfo.PIC_TYPE.Illustration;
-                case "COVER ART (BAND LOGOTYPE)": return PictureInfo.PIC_TYPE.BandLogo;
-                case "COVER ART (PUBLISHER LOGOTYPE)": return PictureInfo.PIC_TYPE.PublisherLogo;
-                default: return PictureInfo.PIC_TYPE.Unsupported;
-            }
+            var picTypePair = picMapping.FirstOrDefault(ptp =>
+                ptp.Value.Equals(picCode, StringComparison.OrdinalIgnoreCase));
+
+            return picTypePair.Equals(default(KeyValuePair<PictureInfo.PIC_TYPE, string>)) ? PictureInfo.PIC_TYPE.Unsupported : picTypePair.Key;
         }
 
         /// <summary>
@@ -293,29 +303,7 @@ namespace ATL.AudioData.IO
         /// <returns>APE picture code corresponding to the given ATL picture type; "Cover Art (Other)" by default</returns>
         private static string encodeAPEPictureType(PictureInfo.PIC_TYPE picType)
         {
-            switch (picType)
-            {
-                case PictureInfo.PIC_TYPE.Icon: return "Cover Art (Icon)";
-                case PictureInfo.PIC_TYPE.Front: return "Cover Art (Front)";
-                case PictureInfo.PIC_TYPE.Back: return "Cover Art (Back)";
-                case PictureInfo.PIC_TYPE.Leaflet: return "Cover Art (Leaflet)";
-                case PictureInfo.PIC_TYPE.CD: return "Cover Art (Media)";
-                case PictureInfo.PIC_TYPE.LeadArtist: return "Cover Art (Lead artist)";
-                case PictureInfo.PIC_TYPE.Artist: return "Cover Art (Artist)";
-                case PictureInfo.PIC_TYPE.Conductor: return "Cover Art (Conductor)";
-                case PictureInfo.PIC_TYPE.Band: return "Cover Art (Band)";
-                case PictureInfo.PIC_TYPE.Composer: return "Cover Art (Composer)";
-                case PictureInfo.PIC_TYPE.Lyricist: return "Cover Art (Lyricist)";
-                case PictureInfo.PIC_TYPE.RecordingLocation: return "Cover Art (Recording location)";
-                case PictureInfo.PIC_TYPE.DuringRecording: return "Cover Art (During recording)";
-                case PictureInfo.PIC_TYPE.DuringPerformance: return "Cover Art (During performance)";
-                case PictureInfo.PIC_TYPE.MovieCapture: return "Cover Art (Movie capture)";
-                case PictureInfo.PIC_TYPE.Fishie: return "Cover Art (A bright coloured fish)";
-                case PictureInfo.PIC_TYPE.Illustration: return "Cover Art (Illustration)";
-                case PictureInfo.PIC_TYPE.BandLogo: return "Cover Art (Band logotype)";
-                case PictureInfo.PIC_TYPE.PublisherLogo: return "Cover Art (Publisher logotype)";
-                default: return "Cover Art (Other)";
-            }
+            return picMapping.TryGetValue(picType, out var type) ? type : "Cover Art (Other)";
         }
 
         /// <inheritdoc/>
@@ -331,25 +319,20 @@ namespace ATL.AudioData.IO
             bool result = readFooter(reader, Tag);
 
             // Process data if loaded and footer valid
-            if (result)
-            {
-                int tagSize;
-                long tagOffset;
+            if (!result) return false;
 
-                tagExists = true;
-                // Fill properties with footer data
-                tagVersion = Tag.Version;
+            // Fill properties with footer data
+            m_tagVersion = Tag.Version;
 
-                tagSize = Tag.Size;
-                if (tagVersion > APE_VERSION_1_0) tagSize += 32; // Even though APE standard prevents from counting header in its size descriptor, ATL needs it
-                tagOffset = Tag.FileSize - Tag.DataShift - Tag.Size;
-                if (tagVersion > APE_VERSION_1_0) tagOffset -= 32; // Tag size does not include header size in APEv2
+            var tagSize = Tag.Size;
+            if (m_tagVersion > APE_VERSION_1_0) tagSize += 32; // Even though APE standard prevents from counting header in its size descriptor, ATL needs it
+            var tagOffset = Tag.FileSize - Tag.DataShift - Tag.Size;
+            if (m_tagVersion > APE_VERSION_1_0) tagOffset -= 32; // Tag size does not include header size in APEv2
 
-                structureHelper.AddZone(tagOffset, tagSize);
+            structureHelper.AddZone(tagOffset, tagSize);
 
-                // Get information from fields
-                result = readFrames(reader, Tag, readTagParams);
-            }
+            // Get information from fields
+            result = readFrames(reader, Tag, readTagParams);
 
             return result;
         }
@@ -363,17 +346,12 @@ namespace ATL.AudioData.IO
         /// <returns>True if writing operation succeeded; false if not</returns>
         protected override int write(TagData tag, Stream s, string zone)
         {
-            using (BinaryWriter w = new BinaryWriter(s, Encoding.UTF8, true)) return write(tag, w);
+            using BinaryWriter w = new BinaryWriter(s, Encoding.UTF8, true);
+            return write(tag, w);
         }
 
         private int write(TagData tag, BinaryWriter w)
         {
-            int tagSize;
-            long tagSizePos;
-
-            long itemCountPos;
-            int itemCount;
-
             uint flags = 0xA0000000; // Flag for "tag contains a footer, a header, and this is the header"
 
 
@@ -384,11 +362,11 @@ namespace ATL.AudioData.IO
             w.Write(APE_VERSION_2_0); // Version 2
 
             // Keep position in mind to calculate final size and come back here to write it
-            tagSizePos = w.BaseStream.Position;
+            var tagSizePos = w.BaseStream.Position;
             w.Write(0); // Tag size placeholder to be rewritten in a few lines
 
             // Keep position in mind to calculate final item count and come back here to write it
-            itemCountPos = w.BaseStream.Position;
+            var itemCountPos = w.BaseStream.Position;
             w.Write(0); // Item count placeholder to be rewritten in a few lines
 
             w.Write(flags);
@@ -401,12 +379,12 @@ namespace ATL.AudioData.IO
             // == FRAMES ==
             // ============
             long dataPos = w.BaseStream.Position;
-            itemCount = writeFrames(tag, w);
+            var itemCount = writeFrames(tag, w);
 
             // Record final size of tag into "tag size" field of header
             long finalTagPos = w.BaseStream.Position;
             w.BaseStream.Seek(tagSizePos, SeekOrigin.Begin);
-            tagSize = (int)(finalTagPos - dataPos) + 32; // 32 being the size of the header
+            var tagSize = (int)(finalTagPos - dataPos) + 32; // 32 being the size of the header
             w.Write(tagSize);
             w.BaseStream.Seek(itemCountPos, SeekOrigin.Begin);
             w.Write(itemCount);
@@ -434,23 +412,15 @@ namespace ATL.AudioData.IO
 
         private int writeFrames(TagData tag, BinaryWriter w)
         {
-            bool doWritePicture;
             int nbFrames = 0;
+            // Keep these in memory to prevent setting them twice using AdditionalFields
+            var writtenFieldCodes = new HashSet<string>();
 
             // Picture fields (first before textual fields, since APE tag is located on the footer)
-            foreach (PictureInfo picInfo in tag.Pictures)
+            foreach (PictureInfo picInfo in tag.Pictures.Where(isPictureWritable))
             {
-                // Picture has either to be supported, or to come from the right tag standard
-                doWritePicture = !picInfo.PicType.Equals(PictureInfo.PIC_TYPE.Unsupported);
-                if (!doWritePicture) doWritePicture = (getImplementedTagType() == picInfo.TagType);
-                // It also has not to be marked for deletion
-                doWritePicture = doWritePicture && (!picInfo.MarkedForDeletion);
-
-                if (doWritePicture)
-                {
-                    writePictureFrame(w, picInfo.PictureData, picInfo.MimeType, picInfo.PicType.Equals(PictureInfo.PIC_TYPE.Unsupported) ? picInfo.NativePicCodeStr : encodeAPEPictureType(picInfo.PicType));
-                    nbFrames++;
-                }
+                writePictureFrame(w, picInfo.PictureData, picInfo.MimeType, picInfo.PicType.Equals(PictureInfo.PIC_TYPE.Unsupported) ? picInfo.NativePicCodeStr : encodeAPEPictureType(picInfo.PicType));
+                nbFrames++;
             }
 
             IDictionary<Field, string> map = tag.ToMap();
@@ -466,6 +436,7 @@ namespace ATL.AudioData.IO
                         {
                             string value = formatBeforeWriting(frameType, tag, map);
                             writeTextFrame(w, s, value);
+                            writtenFieldCodes.Add(s.ToUpper());
                             nbFrames++;
                         }
                         break;
@@ -474,9 +445,9 @@ namespace ATL.AudioData.IO
             }
 
             // Other textual fields
-            foreach (MetaFieldInfo fieldInfo in tag.AdditionalFields)
+            foreach (MetaFieldInfo fieldInfo in tag.AdditionalFields.Where(isMetaFieldWritable))
             {
-                if ((fieldInfo.TagType.Equals(MetaDataIOFactory.TagType.ANY) || fieldInfo.TagType.Equals(getImplementedTagType())) && !fieldInfo.MarkedForDeletion)
+                if (!writtenFieldCodes.Contains(fieldInfo.NativeFieldCode.ToUpper()))
                 {
                     writeTextFrame(w, fieldInfo.NativeFieldCode, FormatBeforeWriting(fieldInfo.Value));
                     nbFrames++;
@@ -486,14 +457,11 @@ namespace ATL.AudioData.IO
             return nbFrames;
         }
 
-        private void writeTextFrame(BinaryWriter writer, string frameCode, string text)
+        private static void writeTextFrame(BinaryWriter writer, string frameCode, string text)
         {
-            long frameSizePos;
-            long finalFramePos;
+            const int frameFlags = 0x0000;
 
-            int frameFlags = 0x0000;
-
-            frameSizePos = writer.BaseStream.Position;
+            var frameSizePos = writer.BaseStream.Position;
             writer.Write(0); // Frame size placeholder to be rewritten in a few lines
 
             writer.Write(frameFlags);
@@ -501,25 +469,22 @@ namespace ATL.AudioData.IO
             writer.Write(Utils.Latin1Encoding.GetBytes(frameCode));
             writer.Write('\0'); // String has to be null-terminated
 
+            // Using Settings encoding to support rogue APE tags that use exotic charsets (though specs clearly say UTF-8)
             byte[] binaryValue = Settings.DefaultTextEncoding.GetBytes(text);
             writer.Write(binaryValue);
 
             // Go back to frame size location to write its actual size 
-            finalFramePos = writer.BaseStream.Position;
+            var finalFramePos = writer.BaseStream.Position;
             writer.BaseStream.Seek(frameSizePos, SeekOrigin.Begin);
             writer.Write(binaryValue.Length);
             writer.BaseStream.Seek(finalFramePos, SeekOrigin.Begin);
         }
 
-        private void writePictureFrame(BinaryWriter writer, byte[] pictureData, string mimeType, string pictureTypeCode)
+        private static void writePictureFrame(BinaryWriter writer, byte[] pictureData, string mimeType, string pictureTypeCode)
         {
-            // Binary tag writing management
-            long frameSizePos;
-            long finalFramePos;
+            const int frameFlags = 0x00000002; // This frame contains binary information (essential for pictures)
 
-            int frameFlags = 0x00000002; // This frame contains binary information (essential for pictures)
-
-            frameSizePos = writer.BaseStream.Position;
+            var frameSizePos = writer.BaseStream.Position;
             writer.Write(0); // Frame size placeholder to be rewritten in a few lines
 
             writer.Write(frameFlags);
@@ -531,9 +496,9 @@ namespace ATL.AudioData.IO
             // Description = picture code + 0x2E byte -?- + image type encoded in ISO-8859-1 (derived from mime-type without the first half)
             writer.Write(Utils.Latin1Encoding.GetBytes(pictureTypeCode));
             writer.Write((byte)0x2E);
-            string imageType;
+
             string[] tmp = mimeType.Split('/');
-            imageType = (tmp.Length > 1) ? tmp[1] : tmp[0];
+            var imageType = (tmp.Length > 1) ? tmp[1] : tmp[0];
             if ("jpeg".Equals(imageType)) imageType = "jpg";
 
             writer.Write(Utils.Latin1Encoding.GetBytes(imageType)); // Force ISO-8859-1 format for mime-type
@@ -542,7 +507,7 @@ namespace ATL.AudioData.IO
             writer.Write(pictureData);
 
             // Go back to frame size location to write its actual size
-            finalFramePos = writer.BaseStream.Position;
+            var finalFramePos = writer.BaseStream.Position;
             writer.BaseStream.Seek(frameSizePos, SeekOrigin.Begin);
             writer.Write((int)(finalFramePos - dataPos));
             writer.BaseStream.Seek(finalFramePos, SeekOrigin.Begin);

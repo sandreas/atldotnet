@@ -13,20 +13,52 @@ namespace ATL.Playlist.IO
     /// </summary>
     public class FPLIO : PlaylistIO
     {
-        private static byte[] FILE_IDENTIFIER = Utils.Latin1Encoding.GetBytes("file://");
+        private static readonly byte[] FILE_IDENTIFIER = Utils.Latin1Encoding.GetBytes("file://");
+        private static readonly byte[] HTTP_IDENTIFIER = Utils.Latin1Encoding.GetBytes("http://");
+        private static readonly byte[] HTTPS_IDENTIFIER = Utils.Latin1Encoding.GetBytes("https://");
+
+        /// <summary>
+        /// Constructor
+        /// </summary>
+        /// <param name="filePath">Path of playlist file to load</param>
+        public FPLIO(string filePath) : base(filePath)
+        {
+        }
 
         /// <inheritdoc/>
-        protected override void getFiles(FileStream fs, IList<string> result)
+        protected override void load(FileStream fs, IList<FileLocation> locations, IList<Track> tracks)
         {
             while (StreamUtils.FindSequence(fs, FILE_IDENTIFIER))
             {
                 string filePath = StreamUtils.ReadNullTerminatedString(fs, UTF8_NO_BOM);
-                result.Add(decodeLocation(filePath));
+                var location = decodeLocation(filePath);
+                locations.Add(location);
+                tracks.Add(new Track(location.Path));
+            }
+
+            fs.Seek(0, SeekOrigin.Begin);
+            while (StreamUtils.FindSequence(fs, HTTP_IDENTIFIER))
+            {
+                fs.Seek(-HTTP_IDENTIFIER.Length, SeekOrigin.Current);
+                string filePath = StreamUtils.ReadNullTerminatedString(fs, UTF8_NO_BOM);
+                var location = decodeLocation(filePath);
+                locations.Add(location);
+                tracks.Add(new Track(location.Path));
+            }
+
+            fs.Seek(0, SeekOrigin.Begin);
+            while (StreamUtils.FindSequence(fs, HTTPS_IDENTIFIER))
+            {
+                fs.Seek(-HTTPS_IDENTIFIER.Length, SeekOrigin.Current);
+                string filePath = StreamUtils.ReadNullTerminatedString(fs, UTF8_NO_BOM);
+                var location = decodeLocation(filePath);
+                locations.Add(location);
+                tracks.Add(new Track(location.Path));
             }
         }
 
         /// <inheritdoc/>
-        protected override void setTracks(FileStream fs, IList<Track> result)
+        protected override void save(FileStream fs, IList<Track> tracks)
         {
             throw new NotImplementedException("FPL writing not implemented");
         }

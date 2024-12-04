@@ -1,7 +1,9 @@
 using ATL.Logging;
 using Commons;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using static ATL.AudioData.AudioDataManager;
 using static ATL.ChannelsArrangements;
 
@@ -23,13 +25,6 @@ namespace ATL.AudioData.IO
         public const string VENDOR_ID_LAME = "LAME";                      // For LAME
         public const string VENDOR_ID_GOGO_NEW = "GOGO";            // For GoGo (New)
         public const string VENDOR_ID_GOGO_OLD = "MPGE";            // For GoGo (Old)
-
-        /*
-        public static readonly byte[] RIFF_HEADER = new byte[4] { 0x52, 0x49, 0x46, 0x46 }; // 'RIFF'
-        public static readonly byte[] RIFF_MP3_ID = new byte[4] { 0x52, 0x4D, 0x50, 0x33 }; // 'RMP3'
-        public static readonly byte[] RIFF_WAV_ID = new byte[4] { 0x57, 0x41, 0x56, 0x45 }; // 'WAVE'
-        public static readonly byte[] RIFF_WAV_DATA_SUBCHUNK_ID = new byte[4] { 0x64, 0x61, 0x74, 0x61 }; // 'data'
-        */
 
         // Table for bit rates (KBit/s)
         public static readonly ushort[,,] MPEG_BIT_RATE = new ushort[4, 4, 16]
@@ -80,8 +75,8 @@ namespace ATL.AudioData.IO
     	};
 
         // VBR header ID for Xing/FhG
-        public const String VBR_ID_XING = "Xing";                       // Xing VBR ID
-        public const String VBR_ID_FHG = "VBRI";                         // FhG VBR ID
+        public const string VBR_ID_XING = "Xing";                       // Xing VBR ID
+        public const string VBR_ID_FHG = "VBRI";                         // FhG VBR ID
 
         // MPEG version codes
         public const byte MPEG_VERSION_2_5 = 0;                            // MPEG 2.5
@@ -90,7 +85,7 @@ namespace ATL.AudioData.IO
         public const byte MPEG_VERSION_1 = 3;                                // MPEG 1
 
         // MPEG version names
-        public static readonly String[] MPEG_VERSION = new String[4] { "MPEG 2.5", "MPEG ?", "MPEG 2", "MPEG 1" };
+        public static readonly string[] MPEG_VERSION = new string[] { "MPEG 2.5", "MPEG ?", "MPEG 2", "MPEG 1" };
 
         // MPEG layer codes
         public const byte MPEG_LAYER_UNKNOWN = 0;                     // Unknown layer
@@ -99,7 +94,7 @@ namespace ATL.AudioData.IO
         public const byte MPEG_LAYER_I = 3;                                 // Layer I
 
         // MPEG layer names
-        public static readonly String[] MPEG_LAYER = new String[4] { "Layer ?", "Layer III", "Layer II", "Layer I" };
+        public static readonly string[] MPEG_LAYER = new string[] { "Layer ?", "Layer III", "Layer II", "Layer I" };
 
         // Channel mode codes
         public const byte MPEG_CM_STEREO = 0;                                // Stereo
@@ -109,7 +104,7 @@ namespace ATL.AudioData.IO
         public const byte MPEG_CM_UNKNOWN = 4;                         // Unknown mode
 
         // Channel mode names
-        public static readonly String[] MPEG_CM_MODE = new String[5] { "Stereo", "Joint Stereo", "Dual Channel", "Mono", "Unknown" };
+        public static readonly string[] MPEG_CM_MODE = new string[] { "Stereo", "Joint Stereo", "Dual Channel", "Mono", "Unknown" };
 
         // Extension mode codes (for Joint Stereo)
         public const byte MPEG_CM_EXTENSION_OFF = 0;        // IS and MS modes set off
@@ -125,7 +120,7 @@ namespace ATL.AudioData.IO
         public const byte MPEG_EMPHASIS_CCIT = 3;                         // CCIT J.17
 
         // Emphasis names
-        public static readonly String[] MPEG_EMPHASIS = new String[4] { "None", "50/15 ms", "Unknown", "CCIT J.17" };
+        public static readonly string[] MPEG_EMPHASIS = new string[] { "None", "50/15 ms", "Unknown", "CCIT J.17" };
 
         // Encoder codes
         public const byte MPEG_ENCODER_UNKNOWN = 0;                // Unknown encoder
@@ -138,7 +133,7 @@ namespace ATL.AudioData.IO
         public const byte MPEG_ENCODER_QDESIGN = 7;                        // QDesign
 
         // Encoder names
-        public static readonly String[] MPEG_ENCODER = new String[8] { "Unknown", "Xing", "FhG", "LAME", "Blade", "GoGo", "Shine", "QDesign" };
+        public static readonly string[] MPEG_ENCODER = new string[] { "Unknown", "Xing", "FhG", "LAME", "Blade", "GoGo", "Shine", "QDesign" };
 
         // Xing/FhG VBR header data
         public sealed class VBRData
@@ -165,27 +160,28 @@ namespace ATL.AudioData.IO
         public sealed class FrameHeader
         {
             public bool Found;                                 // True if frame found
-            public long Position;                        // Frame position in the file
-            public int Size;                                 // Frame size (bytes)
-            public bool Xing;                                 // True if Xing encoder
+            public long Offset;                         // Frame position in the file
+            private bool Xing;                                 // True if Xing encoder
             public byte VersionID;                                 // MPEG version ID
             public byte LayerID;                                     // MPEG layer ID
-            public bool ProtectionBit;                    // True if protected by CRC
+            private bool ProtectionBit;                    // True if protected by CRC
             public ushort BitRateID;                                   // Bit rate ID
-            public ushort SampleRateID;                             // Sample rate ID
-            public bool PaddingBit;                           // True if frame padded
-            public bool PrivateBit;                              // Extra information
+            private ushort SampleRateID;                             // Sample rate ID
+            private bool PaddingBit;                           // True if frame padded
+            private bool PrivateBit;                              // Extra information
             public byte ModeID;                                    // Channel mode ID
-            public byte ModeExtensionID;      // Mode extension ID (for Joint Stereo)
-            public bool CopyrightBit;                    // True if audio copyrighted
-            public bool OriginalBit;                        // True if original media
-            public byte EmphasisID;                                    // Emphasis ID
+            private byte ModeExtensionID;      // Mode extension ID (for Joint Stereo)
+            private bool CopyrightBit;                    // True if audio copyrighted
+            private bool OriginalBit;                        // True if original media
+            private byte EmphasisID;                                    // Emphasis ID
+
+            private int m_size;                                  // Frame size (bytes)
 
             public void Reset()
             {
                 Found = false;
-                Position = 0;
-                Size = 0;
+                Offset = 0;
+                m_size = -1;
                 Xing = false;
 
                 VersionID = MPEG_VERSION_UNKNOWN;
@@ -209,21 +205,97 @@ namespace ATL.AudioData.IO
                 ProtectionBit = (data[1] & 1) != 1;
                 BitRateID = (ushort)(data[2] >> 4);
                 SampleRateID = (ushort)((data[2] >> 2) & 3);
-                PaddingBit = (((data[2] >> 1) & 1) == 1);
-                PrivateBit = ((data[2] & 1) == 1);
+                PaddingBit = ((data[2] >> 1) & 1) == 1;
+                PrivateBit = (data[2] & 1) == 1;
                 ModeID = (byte)((data[3] >> 6) & 3);
                 ModeExtensionID = (byte)((data[3] >> 4) & 3);
-                CopyrightBit = (((data[3] >> 3) & 1) == 1);
-                OriginalBit = (((data[3] >> 2) & 1) == 1);
+                CopyrightBit = ((data[3] >> 3) & 1) == 1;
+                OriginalBit = ((data[3] >> 2) & 1) == 1;
                 EmphasisID = (byte)(data[3] & 3);
+                m_size = -1;
             }
+
+            /// <summary>
+            /// Get MPEG layer name
+            /// </summary>
+            public string Layer => MPEG_LAYER[LayerID];
+            public ushort BitRate => MPEG_BIT_RATE[VersionID, LayerID, BitRateID];
+            public ushort SampleRate => MPEG_SAMPLE_RATE[VersionID, SampleRateID];
+            public int Padding => PaddingBit ? 1 : 0;
+
+
+            public int Size
+            {
+                get
+                {
+                    if (m_size < 1)
+                    {
+                        if (MPEG_LAYER_I == LayerID)
+                        {
+                            m_size = (int)((Math.Floor(Coefficient * BitRate * 1000.0 / SampleRate) + Padding) * 4);
+                        }
+                        else // Layers II and III
+                        {
+                            m_size = (int)Math.Floor(Coefficient * BitRate * 1000.0 / SampleRate) + Padding;
+                        }
+                    }
+
+                    return m_size;
+                }
+            }
+
+            /// <summary>
+            /// Get frame size coefficient
+            /// https://stackoverflow.com/a/62539671
+            /// </summary>
+            public byte Coefficient
+            {
+                get
+                {
+                    if (MPEG_VERSION_1 == VersionID)
+                        if (MPEG_LAYER_I == LayerID) return 12;
+                        else return 144;
+                    else
+                        if (MPEG_LAYER_I == LayerID) return 12;
+                    else if (MPEG_LAYER_II == LayerID) return 144;
+                    else return 72;
+                }
+            }
+
+            public byte VBRDeviation
+            {
+                get
+                {
+                    if (MPEG_VERSION_1 == VersionID)
+                        if (ModeID != MPEG_CM_MONO) return 36;
+                        else return 21;
+                    else
+                        if (ModeID != MPEG_CM_MONO) return 21;
+                    else return 13;
+                }
+            }
+
+            public ChannelsArrangement ChannelsArrangement
+            {
+                get
+                {
+                    switch (ModeID)
+                    {
+                        case MPEG_CM_STEREO: return STEREO;
+                        case MPEG_CM_JOINT_STEREO: return JOINT_STEREO;
+                        case MPEG_CM_DUAL_CHANNEL: return DUAL_MONO;
+                        case MPEG_CM_MONO: return MONO;
+                        default: return UNKNOWN;
+                    }
+                }
+            }
+
+            public double Duration => Size * 1.0 / BitRate * 8.0;
         }
 
         private VBRData vbrData = new VBRData();
-        private FrameHeader HeaderFrame = new FrameHeader();
-        private SizeInfo sizeInfo;
-        private readonly string filePath;
-        private readonly Format audioFormat;
+        private FrameHeader FirstFrame = new FrameHeader();
+        private readonly AudioFormat audioFormat;
 
 
         // ---------- INFORMATIVE INTERFACE IMPLEMENTATIONS & MANDATORY OVERRIDES
@@ -231,35 +303,37 @@ namespace ATL.AudioData.IO
         /// <summary>
         /// VBR header data
         /// </summary>
-        public VBRData VBR { get => vbrData; }
-        public bool IsVBR { get => vbrData.Found; }
-        public double BitRate { get => getBitRate(); }
+        public VBRData VBR => vbrData;
+
+        public bool IsVBR => vbrData.Found;
+        public double BitRate => getBitRate();
         public int BitDepth => -1; // Irrelevant for lossy formats
-        public double Duration { get => getDuration(); }
-        public ChannelsArrangement ChannelsArrangement { get => getChannelsArrangement(HeaderFrame); }
-        public int SampleRate { get => getSampleRate(); }
-        public string FileName { get => filePath; }
+        public double Duration => getDuration();
+        public ChannelsArrangement ChannelsArrangement => FirstFrame.ChannelsArrangement;
+        public int SampleRate => FirstFrame.SampleRate;
+        public string FileName { get; }
+
         public long AudioDataOffset { get; set; }
         public long AudioDataSize { get; set; }
 
-        public Format AudioFormat
+        public AudioFormat AudioFormat
         {
             get
             {
-                Format f = new Format(audioFormat);
-                f.Name = f.Name + " (" + getLayer() + ")";
+                AudioFormat f = new AudioFormat(audioFormat);
+                f.Name = f.Name + " (" + FirstFrame.Layer + ")";
                 return f;
             }
         }
-        public int CodecFamily
-        {
-            get => AudioDataIOFactory.CF_LOSSY;
-        }
+        public int CodecFamily => AudioDataIOFactory.CF_LOSSY;
 
-        public bool IsMetaSupported(MetaDataIOFactory.TagType metaDataType)
+        /// <inheritdoc/>
+        public List<MetaDataIOFactory.TagType> GetSupportedMetas()
         {
-            return (metaDataType == MetaDataIOFactory.TagType.ID3V1) || (metaDataType == MetaDataIOFactory.TagType.ID3V2) || (metaDataType == MetaDataIOFactory.TagType.APE);
+            return new List<MetaDataIOFactory.TagType> { MetaDataIOFactory.TagType.ID3V2, MetaDataIOFactory.TagType.APE, MetaDataIOFactory.TagType.ID3V1 };
         }
+        /// <inheritdoc/>
+        public bool IsNativeMetadataRich => false;
 
 
         // ---------- CONSTRUCTORS & INITIALIZERS
@@ -267,15 +341,15 @@ namespace ATL.AudioData.IO
         protected void resetData()
         {
             vbrData.Reset();
-            HeaderFrame.Reset();
+            FirstFrame.Reset();
             AudioDataOffset = -1;
             AudioDataSize = 0;
         }
 
-        public MPEGaudio(string filePath, Format format)
+        public MPEGaudio(string filePath, AudioFormat format)
         {
-            this.filePath = filePath;
-            this.audioFormat = format;
+            this.FileName = filePath;
+            audioFormat = format;
             resetData();
         }
 
@@ -298,63 +372,19 @@ namespace ATL.AudioData.IO
                 );
         }
 
-        private static byte getCoefficient(FrameHeader Frame)
-        {
-            // Get frame size coefficient
-            if (MPEG_VERSION_1 == Frame.VersionID)
-                if (MPEG_LAYER_I == Frame.LayerID) return 48;
-                else return 144;
-            else
-                if (MPEG_LAYER_I == Frame.LayerID) return 24;
-            else if (MPEG_LAYER_II == Frame.LayerID) return 144;
-            else return 72;
-        }
-
-        private static ushort getBitRate(FrameHeader Frame)
-        {
-            // Get bit rate
-            return MPEG_BIT_RATE[Frame.VersionID, Frame.LayerID, Frame.BitRateID];
-        }
-
-        private static ushort getSampleRate(FrameHeader Frame)
-        {
-            // Get sample rate
-            return MPEG_SAMPLE_RATE[Frame.VersionID, Frame.SampleRateID];
-        }
-
-        private static byte getPadding(FrameHeader Frame)
-        {
-            // Get frame padding
-            if (Frame.PaddingBit)
-                if (MPEG_LAYER_I == Frame.LayerID) return 4;
-                else return 1;
-            else return 0;
-        }
-
+        /// <summary>
+        /// Get bit rate, calculate average bit rate if VBR header found
+        /// </summary>
         private double getBitRate()
         {
-            // Get bit rate, calculate average bit rate if VBR header found
-            if ((vbrData.Found) && (vbrData.Frames > 0))
+            if (vbrData.Found && (vbrData.Frames > 0))
                 return Math.Round(
-                        (
-                            ((double)vbrData.Bytes / vbrData.Frames - getPadding(HeaderFrame)) *
-                            (double)getSampleRate(HeaderFrame) / getCoefficient(HeaderFrame)
-                            ) / 1000.0
+                            ((double)vbrData.Bytes / vbrData.Frames - FirstFrame.Padding) *
+                            FirstFrame.SampleRate / FirstFrame.Coefficient
+                            / 1000.0
                     );
             else
-                return getBitRate(HeaderFrame);
-        }
-
-        private ushort getSampleRate()
-        {
-            // Get sample rate
-            return getSampleRate(HeaderFrame);
-        }
-
-        private static int getFrameSize(FrameHeader Frame)
-        {
-            // This formula only works for Layers II and III
-            return (int)Math.Floor(getCoefficient(Frame) * getBitRate(Frame) * 1000.0 / getSampleRate(Frame)) + getPadding(Frame);
+                return FirstFrame.BitRate;
         }
 
         private static VBRData getXingInfo(Stream source)
@@ -365,7 +395,7 @@ namespace ATL.AudioData.IO
             result.Found = true;
             result.ID = VBR_ID_XING.ToCharArray();
             source.Seek(4, SeekOrigin.Current);
-            source.Read(data, 0, 8);
+            if (source.Read(data, 0, 8) < 8) return result;
 
             result.Frames =
                 data[0] * 0x1000000 +
@@ -380,9 +410,9 @@ namespace ATL.AudioData.IO
 
             source.Seek(103, SeekOrigin.Current);
 
-            source.Read(data, 0, 1);
+            if (source.Read(data, 0, 1) < 1) return result;
             result.Scale = data[0];
-            source.Read(data, 0, 8);
+            if (source.Read(data, 0, 8) < 8) return result;
             result.VendorID = Utils.Latin1Encoding.GetString(data, 0, 8);
 
             return result;
@@ -397,7 +427,7 @@ namespace ATL.AudioData.IO
             result.Found = true;
             result.ID = VBR_ID_FHG.ToCharArray();
             source.Seek(5, SeekOrigin.Current);
-            source.Read(data, 0, 9);
+            if (source.Read(data, 0, 9) < 9) return result;
 
             result.Scale = data[0];
             result.Bytes =
@@ -424,78 +454,62 @@ namespace ATL.AudioData.IO
             // Check for VBR header at given position
             source.Seek(position, SeekOrigin.Begin);
 
-            source.Read(data, 0, 4);
-            string vbrId = Utils.Latin1Encoding.GetString(data);
-
-            if (VBR_ID_XING.Equals(vbrId)) result = getXingInfo(source);
-            else if (VBR_ID_FHG.Equals(vbrId)) result = getFhGInfo(source);
-            else
+            if (4 == source.Read(data, 0, 4))
             {
-                result = new VBRData();
-                result.Reset();
+                string vbrId = Utils.Latin1Encoding.GetString(data);
+                if (VBR_ID_XING.Equals(vbrId)) return getXingInfo(source);
+                if (VBR_ID_FHG.Equals(vbrId)) return getFhGInfo(source);
             }
 
+            result = new VBRData();
+            result.Reset();
             return result;
-        }
-
-        // Get MPEG layer name
-
-        private String getLayer()
-        {
-            return MPEG_LAYER[HeaderFrame.LayerID];
-        }
-
-        private static byte getVBRDeviation(FrameHeader Frame)
-        {
-            // Calculate VBR deviation
-            if (MPEG_VERSION_1 == Frame.VersionID)
-                if (Frame.ModeID != MPEG_CM_MONO) return 36;
-                else return 21;
-            else
-                if (Frame.ModeID != MPEG_CM_MONO) return 21;
-            else return 13;
         }
 
         private double getDuration()
         {
-            // Calculate song duration
-            if (HeaderFrame.Found)
+            if (FirstFrame.Found)
                 if (vbrData.Found && (vbrData.Frames > 0))
-                    return vbrData.Frames * getCoefficient(HeaderFrame) * 8.0 * 1000.0 / getSampleRate(HeaderFrame);
-                else
-                {
-                    long MPEGSize = sizeInfo.FileSize - sizeInfo.TotalTagSize;
-                    return (MPEGSize/* - HeaderFrame.Position*/) / getBitRate(HeaderFrame) * 8;
-                }
+                    return vbrData.Frames * FirstFrame.Coefficient * 8.0 * 1000.0 / FirstFrame.SampleRate;
+                else return AudioDataSize * 1.0 / FirstFrame.BitRate * 8.0;
             else
                 return 0;
         }
 
-        private ChannelsArrangement getChannelsArrangement(FrameHeader frame)
-        {
-            switch (frame.ModeID)
-            {
-                case MPEG_CM_STEREO: return STEREO;
-                case MPEG_CM_JOINT_STEREO: return JOINT_STEREO;
-                case MPEG_CM_DUAL_CHANNEL: return DUAL_MONO;
-                case MPEG_CM_MONO: return MONO;
-                default: return UNKNOWN;
-            }
-        }
-
         public static bool HasValidFrame(Stream source)
         {
-            VBRData dummyVbr = null;
-            return findFrame(source, ref dummyVbr, null).Found;
+            VBRData dummyVbr = null; // Skips bitrate check
+            return findFirstFrame(source, ref dummyVbr, null).Found;
         }
 
-        private static FrameHeader findFrame(Stream source, ref VBRData oVBR, SizeInfo sizeInfo)
+        /// <summary>
+        /// Find next MPEG frame
+        /// NB : The source need to be positioned at the end of an MPEG frame header
+        /// </summary>
+        private static FrameHeader findNextFrame(Stream source, FrameHeader startingFrame, byte[] buffer)
         {
-            byte[] headerData = new byte[4];
-            FrameHeader result = new FrameHeader();
+            FrameHeader nextHeader = new FrameHeader();
+            nextHeader.Reset();
 
-            source.Read(headerData, 0, 4);
-            result.Found = IsValidFrameHeader(headerData);
+            source.Seek(startingFrame.Offset + startingFrame.Size, SeekOrigin.Begin);
+            if (source.Read(buffer, 0, 4) < 4) return nextHeader;
+
+            if (IsValidFrameHeader(buffer))
+            {
+                nextHeader.LoadFromByteArray(buffer);
+                nextHeader.Offset = source.Position - 4;
+                nextHeader.Found = true;
+            }
+            return nextHeader;
+        }
+
+        private static FrameHeader findFirstFrame(Stream source, ref VBRData oVBR, SizeInfo sizeInfo)
+        {
+            FrameHeader result = new FrameHeader();
+            byte[] buffer = new byte[4];
+
+            if (source.Read(buffer, 0, 4) < 4) return result;
+            result.Found = IsValidFrameHeader(buffer);
 
             /*
              * Many things can actually be found before a proper MP3 header :
@@ -507,113 +521,148 @@ namespace ATL.AudioData.IO
              * The most solid way to deal with all of them is to "scan" the file until proper MP3 header is found.
              * This method may not the be fastest, but ensures audio data is actually detected, whatever garbage lies before
              */
-
-            if (!result.Found)
+            if (!result.Found && (buffer[0] == buffer[1]) && (buffer[1] == buffer[2]) && (buffer[2] == buffer[3]))
             {
                 // "Quick win" for files starting with padding bytes
-                // 4 identical bytes => MP3 starts with padding bytes => Skip padding
-                if ((headerData[0] == headerData[1]) && (headerData[1] == headerData[2]) && (headerData[2] == headerData[3]))
+                // 4 identical bytes => file starts with padding bytes => Skip padding
+                long paddingEndOffset = StreamUtils.TraversePadding(source);
+                source.Seek(paddingEndOffset, SeekOrigin.Begin);
+
+                // If padding uses 0xFF bytes, take one step back in case header lies there
+                if (0xFF == buffer[0]) source.Seek(-1, SeekOrigin.Current);
+
+                if (source.Read(buffer, 0, 4) < 4) return result;
+                result.Found = IsValidFrameHeader(buffer);
+            }
+
+            long id3v2Size = (null == sizeInfo) ? 0 : sizeInfo.ID3v2Size;
+            long limit = id3v2Size + (long)Math.Round((source.Length - id3v2Size) * 0.3);
+            int iterations = 0;
+            while (source.Position < limit)
+            {
+                // If above method fails, blindly look for the first frame header
+                // Look for the beginning of the header (2nd byte is variable, so it cannot be searched using a static value)
+                while (!result.Found && source.Position < limit)
                 {
-                    long paddingEndOffset = StreamUtils.TraversePadding(source);
-                    source.Seek(paddingEndOffset, SeekOrigin.Begin);
+                    while (0xFF != source.ReadByte() && source.Position < limit) { /* just advance the stream */ }
 
-                    // If padding uses 0xFF bytes, take one step back in case MP3 header lies there
-                    if (0xFF == headerData[0]) source.Seek(-1, SeekOrigin.Current);
-
-                    source.Read(headerData, 0, 4);
-                    result.Found = IsValidFrameHeader(headerData);
+                    source.Seek(-1, SeekOrigin.Current);
+                    if (source.Read(buffer, 0, 4) < 4) break;
+                    result.Found = IsValidFrameHeader(buffer);
                 }
 
-                // Blindly look for the MP3 header
-                if (!result.Found)
+                // Valid header candidate found
+                // => let's see if it is a legit MP3 header by using its Size descriptor to find the next header
+                // which in turn should at least share the same version ID and layer
+                if (result.Found)
                 {
-                    source.Seek(-4, SeekOrigin.Current);
-                    long id3v2Size = (null == sizeInfo) ? 0 : sizeInfo.ID3v2Size;
-                    long limit = id3v2Size + (long)Math.Round((source.Length - id3v2Size) * 0.3);
+                    result.LoadFromByteArray(buffer);
+                    result.Offset = source.Position - 4;
 
-                    // Look for the beginning of the MP3 header (2nd byte is variable, so it cannot be searched using a static value)
-                    while (!result.Found && source.Position < limit)
+                    // One single frame to analyze
+                    if (0 == iterations && source.Length <= result.Offset + result.Size) break;
+
+                    FrameHeader nextFrame = findNextFrame(source, result, buffer);
+                    result.Found = nextFrame.Found;
+
+                    if (result.Found && result.LayerID == nextFrame.LayerID && result.VersionID == nextFrame.VersionID)
                     {
-                        while (0xFF != source.ReadByte() && source.Position < limit) { /* just advance the stream */ }
+                        source.Seek(result.Offset + 4, SeekOrigin.Begin); // Success ! Go back to header candidate position
+                        break;
+                    }
 
-                        source.Seek(-1, SeekOrigin.Current);
-                        source.Read(headerData, 0, 4);
-                        result.Found = IsValidFrameHeader(headerData);
+                    // Restart looking for a candidate
+                    source.Seek(result.Offset + 1, SeekOrigin.Begin);
+                    result.Found = false;
+                }
+                else
+                {
+                    if (source.Position < limit) source.Seek(-3, SeekOrigin.Current);
+                    result.Found = false;
+                }
+                iterations++;
+            }
 
-                        // Valid header candidate found
-                        // => let's see if it is a legit MP3 header by using its Size descriptor to find the next header
-                        // which in turn should at least share the same version ID and layer
-                        if (result.Found)
+            if (result.Found && oVBR != null)
+            {
+                // Look for VBR signature
+                oVBR = findVBR(source, result.Offset + result.VBRDeviation);
+
+                // If no VBR found, examine the next header to make sure mode and bitrate are consistent
+                if (!oVBR.Found)
+                {
+                    FrameHeader nextFrame = findNextFrame(source, result, buffer);
+                    if (nextFrame.Found)
+                    {
+                        bool sameBase = result.LayerID == nextFrame.LayerID && result.VersionID == nextFrame.VersionID;
+                        bool sameProperties = result.ModeID == nextFrame.ModeID && result.BitRateID == nextFrame.BitRateID;
+
+                        if (!sameBase) result.Found = false;
+                        else if (!sameProperties)
                         {
-                            result.LoadFromByteArray(headerData);
-
-                            result.Position = source.Position - 4;
-                            result.Size = getFrameSize(result);
-
-                            byte[] nextHeaderData = new byte[4];
-                            source.Seek(result.Position + result.Size, SeekOrigin.Begin);
-                            source.Read(nextHeaderData, 0, 4);
-                            result.Found = IsValidFrameHeader(nextHeaderData);
-
-                            if (result.Found)
+                            // First and second headers contradict each other => sample the first 10 headers
+                            // and get the most frequent mode and bitrate
+                            List<FrameHeader> headers = new List<FrameHeader>
                             {
-                                FrameHeader result2 = new FrameHeader();
-                                result2.LoadFromByteArray(nextHeaderData);
-
-                                if (result.LayerID == result2.LayerID && result.VersionID == result2.VersionID)
-                                {
-                                    source.Seek(result.Position + 4, SeekOrigin.Begin); // Success ! Go back to header candidate position
-                                    break;
-                                }
+                                result,
+                                nextFrame
+                            };
+                            for (int i = 0; i < 8; i++)
+                            {
+                                FrameHeader aFrame = findNextFrame(source, result, buffer);
+                                if (aFrame.Found) headers.Add(aFrame);
                             }
-
-                            // Restart looking for a candidate
-                            source.Seek(result.Position + 1, SeekOrigin.Begin);
-                            result.Found = false;
-                        }
-                        else
-                        {
-                            if (source.Position < limit) source.Seek(-3, SeekOrigin.Current);
-                            result.Found = false;
+                            byte finalModeId = headers.GroupBy(x => x.ModeID)
+                                .Select(x => new { Mode = x.Key, Count = x.Count() })
+                                .OrderByDescending(x => x.Count)
+                                .First().Mode;
+                            ushort finalBitrateId = headers.GroupBy(x => x.BitRateID)
+                                .Select(x => new { BitRateID = x.Key, Count = x.Count() })
+                                .OrderByDescending(x => x.Count)
+                                .First().BitRateID;
+                            result.ModeID = finalModeId;
+                            result.BitRateID = finalBitrateId;
                         }
                     }
                 }
             }
 
-            if (result.Found && oVBR != null)
-            {
-                result.LoadFromByteArray(headerData);
-
-                result.Position = source.Position - 4;
-
-                // Look for VBR signature
-                oVBR = findVBR(source, result.Position + getVBRDeviation(result));
-            }
-
             return result;
         }
 
-        public bool Read(Stream source, SizeInfo sizeInfo, MetaDataIO.ReadTagParams readTagParams)
+        private long parseExactAudioDataSize(BufferedBinaryReader reader)
         {
-            this.sizeInfo = sizeInfo;
+            byte[] buffer = new byte[4];
+            reader.Seek(FirstFrame.Offset, SeekOrigin.Begin);
+            FrameHeader nextFrame = findNextFrame(reader, FirstFrame, buffer);
+            while (nextFrame.Found)
+            {
+                nextFrame = findNextFrame(reader, nextFrame, buffer);
+            }
+            return reader.Position - FirstFrame.Offset;
+        }
+
+        public bool Read(Stream source, SizeInfo sizeNfo, MetaDataIO.ReadTagParams readTagParams)
+        {
             resetData();
 
             BufferedBinaryReader reader = new BufferedBinaryReader(source);
 
-            reader.Seek(sizeInfo.ID3v2Size, SeekOrigin.Begin);
-            HeaderFrame = findFrame(reader, ref vbrData, sizeInfo);
+            reader.Seek(sizeNfo.ID3v2Size, SeekOrigin.Begin);
+            FirstFrame = findFirstFrame(reader, ref vbrData, sizeNfo);
 
-            bool result = HeaderFrame.Found;
-            AudioDataOffset = HeaderFrame.Position;
-            AudioDataSize = sizeInfo.FileSize - sizeInfo.APESize - sizeInfo.ID3v1Size - AudioDataOffset;
-
-            if (!result)
+            if (!FirstFrame.Found)
             {
                 resetData();
-                LogDelegator.GetLogDelegate()(Log.LV_ERROR, "Could not detect MPEG Audio header starting @ " + sizeInfo.ID3v2Size);
+                LogDelegator.GetLogDelegate()(Log.LV_ERROR, "Could not detect MPEG Audio header starting @ " + sizeNfo.ID3v2Size);
+                return false;
             }
 
-            return result;
+            AudioDataOffset = FirstFrame.Offset;
+            if (Settings.MP3_parseExactDuration) AudioDataSize = parseExactAudioDataSize(reader);
+            else AudioDataSize = sizeNfo.FileSize - sizeNfo.APESize - sizeNfo.ID3v1Size - AudioDataOffset;
+
+            return true;
         }
 
     }

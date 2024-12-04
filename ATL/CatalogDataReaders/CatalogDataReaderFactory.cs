@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 
 namespace ATL.CatalogDataReaders
@@ -6,16 +5,16 @@ namespace ATL.CatalogDataReaders
     /// <summary>
     /// Factory for Catalog data readers
     /// </summary>
-    public class CatalogDataReaderFactory : Factory
+    public class CatalogDataReaderFactory : Factory<Format>
     {
         // Defines the supported formats
         /// <summary>
         ///  Cuesheet
         /// </summary>
-        public const int CR_CUE = 0;
+        public const int CR_CUE = 1;
 
         // The instance of this factory
-        private static CatalogDataReaderFactory theFactory = null;
+        private static CatalogDataReaderFactory theFactory;
 
         private static readonly object _lockable = new object();
 
@@ -57,14 +56,14 @@ namespace ATL.CatalogDataReaders
             }
             else
             {
-                result = GetCatalogDataReader(UNKNOWN_FORMAT.ID);
+                result = GetCatalogDataReader(Format.UNKNOWN_FORMAT.ID);
             }
 
             result.Path = path;
             return result;
         }
 
-        private ICatalogDataReader GetCatalogDataReader(int formatId, string path = "")
+        private static ICatalogDataReader GetCatalogDataReader(int formatId, string path = "")
         {
             ICatalogDataReader theReader = null;
 

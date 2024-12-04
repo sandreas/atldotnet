@@ -12,7 +12,7 @@ namespace ATL.AudioData.IO
     /// <summary>
     /// Superclass that "consolidates" all metadata I/O algorithms to ease development of new classes and minimize their code
     /// </summary>
-    public abstract class MetaDataIO : MetaDataHolder, IMetaDataIO
+    public abstract partial class MetaDataIO : MetaDataHolder, IMetaDataIO
     {
         // ------ CONSTS -----------------------------------------------------
 
@@ -43,6 +43,17 @@ namespace ATL.AudioData.IO
         /// APE convention (proper 0..100 scale)
         /// </summary>
         public const int RC_APE = 2;
+
+        /// <summary>
+        /// Default constructor
+        /// </summary>
+        protected MetaDataIO() {}
+
+        /// <summary>
+        /// Instanciate a new TagHolder populated with the given TagData
+        /// </summary>
+        /// <param name="tagData">Data to use to populate the new instance</param>
+        protected MetaDataIO(TagData tagData) : base(tagData) { }
 
 
         // ------ INNER CLASSES -----------------------------------------------------
@@ -82,7 +93,7 @@ namespace ATL.AudioData.IO
             /// </summary>
             /// <param name="readPictures">true if pictures have to be read</param>
             /// <param name="readAllMetaFrames">true if all meta frames have t be read</param>
-            public ReadTagParams(bool readPictures, bool readAllMetaFrames)
+            public ReadTagParams(bool readPictures = false, bool readAllMetaFrames = false)
             {
                 ReadPictures = readPictures;
                 ReadAllMetaFrames = readAllMetaFrames;
@@ -96,17 +107,13 @@ namespace ATL.AudioData.IO
         // ------ PROPERTIES -----------------------------------------------------
 
         /// <summary>
-        /// True if the tag exists
-        /// </summary>
-        protected bool tagExists;
-        /// <summary>
         /// Version of the tag
         /// </summary>
-        protected int tagVersion;
+        protected int m_tagVersion;
         /// <summary>
         /// Tag embedder (3rd party tagging system within the tag)
         /// </summary>
-        protected IMetaDataEmbedder embedder;
+        protected IMetaDataEmbedder m_embedder;
 
         private IList<KeyValuePair<string, int>> picturePositions;
 
@@ -116,10 +123,8 @@ namespace ATL.AudioData.IO
         // ------ READ-ONLY "PHYSICAL" TAG INFO FIELDS ACCESSORS -----------------------------------------------------
 
         /// <inheritdoc/>
-        public bool Exists
-        {
-            get { return this.tagExists; }
-        }
+        public bool Exists => tagData.Exists();
+
         /// <inheritdoc/>
         public override IList<Format> MetadataFormats
         {
@@ -133,16 +138,14 @@ namespace ATL.AudioData.IO
                     nativeFormat.Name = nativeFormat.Name + " / " + iO.AudioFormat.ShortName;
                     nativeFormat.ID += iO.AudioFormat.ID;
                 }
-                return new List<Format>(new Format[1] { nativeFormat });
+                return new List<Format>(new[] { nativeFormat });
             }
         }
         /// <summary>
         /// Tag version
         /// </summary>
-        public int Version
-        {
-            get { return this.tagVersion; }
-        }
+        public int Version => m_tagVersion;
+
         /// <inheritdoc/>
         public long Size
         {
@@ -158,29 +161,19 @@ namespace ATL.AudioData.IO
         /// <summary>
         /// Zones of the file
         /// </summary>
-        public ICollection<Zone> Zones
-        {
-            get
-            {
-                return structureHelper.Zones;
-            }
-        }
+        public ICollection<Zone> Zones => structureHelper.Zones;
 
 
         // ------ TAGDATA FIELDS ACCESSORS -----------------------------------------------------
 
         /// <inheritdoc/>
-        public long PaddingSize
-        {
-            get { return tagData.PaddingSize; }
-        }
+        public long PaddingSize => tagData.PaddingSize;
+
         /// <summary>
         /// Rating convention to use to format Popularity for the current tagging format
         /// </summary>
-        protected virtual byte ratingConvention
-        {
-            get { return MetaDataIO.RC_ID3v2; }
-        }
+        protected virtual byte ratingConvention => RC_ID3v2;
+
         /// <summary>
         /// Encode the given DateTime for the current tagging format
         /// </summary>
@@ -195,19 +188,13 @@ namespace ATL.AudioData.IO
         /// Indicate whether the metadata field code must have a fixed length or not
         /// Default : 0 (no fixed length)
         /// </summary>
-        public virtual byte FieldCodeFixedLength
-        {
-            get { return 0; }
-        }
+        public virtual byte FieldCodeFixedLength => 0;
 
         /// <summary>
         /// Indicate whether metadata should be read with little endian convention
         /// true : little endian; false : big endian
         /// </summary>
-        protected virtual bool isLittleEndian
-        {
-            get { return true; }
-        }
+        protected virtual bool isLittleEndian => true;
 
         // ------ PICTURE HELPER METHODS -----------------------------------------------------
 
@@ -260,7 +247,7 @@ namespace ATL.AudioData.IO
         /// <param name="source">Source to read metadata from</param>
         /// <param name="readTagParams">Read parameters</param>
         /// <returns>True if read has been successful, false if it failed</returns>
-        abstract protected bool read(Stream source, ReadTagParams readTagParams);
+        protected abstract bool read(Stream source, ReadTagParams readTagParams);
 
         /// <summary>
         /// Write the given zone's metadata using the given writer
@@ -269,13 +256,13 @@ namespace ATL.AudioData.IO
         /// <param name="s">Writer to use</param>
         /// <param name="zone">Code of the zone to write</param>
         /// <returns>Number of written fields; 0 if no field has been added not edited</returns>
-        abstract protected int write(TagData tag, Stream s, string zone);
+        protected abstract int write(TagData tag, Stream s, string zone);
 
         /// <summary>
         /// Return the default offset of the metadata block
         /// </summary>
         /// <returns></returns>
-        abstract protected int getDefaultTagOffset();
+        protected abstract int getDefaultTagOffset();
 
         /// <summary>
         /// Get the frame code (per <see cref="TagData"/> standards for the given field ID in the given zone and the given tag version
@@ -284,7 +271,7 @@ namespace ATL.AudioData.IO
         /// <param name="ID">ID of the field to get the mapping for</param>
         /// <param name="tagVersion">Version the tagging system (e.g. 3 for ID3v2.3)</param>
         /// <returns></returns>
-        abstract protected Field getFrameMapping(string zone, string ID, byte tagVersion);
+        protected abstract Field getFrameMapping(string zone, string ID, byte tagVersion);
 
 
         // ------ COMMON METHODS -----------------------------------------------------
@@ -295,7 +282,7 @@ namespace ATL.AudioData.IO
         /// <param name="embedder">Embedder to set</param>
         public void SetEmbedder(IMetaDataEmbedder embedder)
         {
-            this.embedder = embedder;
+            m_embedder = embedder;
         }
 
         /// <summary>
@@ -303,10 +290,9 @@ namespace ATL.AudioData.IO
         /// </summary>
         protected void ResetData()
         {
-            tagExists = false;
-            tagVersion = 0;
+            m_tagVersion = 0;
 
-            if (null == tagData) tagData = new TagData(); else tagData.Clear();
+            tagData.Clear();
             if (null == picturePositions) picturePositions = new List<KeyValuePair<string, int>>(); else picturePositions.Clear();
             if (null == structureHelper) structureHelper = new FileStructureHelper(isLittleEndian); else structureHelper.Clear();
         }
@@ -350,20 +336,20 @@ namespace ATL.AudioData.IO
         protected void setMetaField(Field ID, string dataIn)
         {
             string dataOut = dataIn;
-            if (Field.TRACK_NUMBER == ID && dataIn.Length > 1 && dataIn.StartsWith("0")) tagData.TrackDigitsForLeadingZeroes = dataIn.Length;
+            if (Field.TRACK_NUMBER == ID && dataIn.Length > 1 && dataIn.StartsWith('0')) tagData.TrackDigitsForLeadingZeroes = dataIn.Length;
             else if (Field.TRACK_NUMBER_TOTAL == ID)
             {
-                if (dataIn.Contains("/"))
+                if (dataIn.Contains('/'))
                 {
                     string[] parts = dataIn.Split('/');
-                    if (parts[0].Length > 1 && parts[0].StartsWith("0")) tagData.TrackDigitsForLeadingZeroes = parts[0].Length;
+                    if (parts[0].Length > 1 && parts[0].StartsWith('0')) tagData.TrackDigitsForLeadingZeroes = parts[0].Length;
                 }
             }
-            else if (Field.DISC_NUMBER == ID && dataIn.Length > 1 && dataIn.StartsWith("0")) tagData.DiscDigitsForLeadingZeroes = dataIn.Length;
-            else if (Field.DISC_NUMBER_TOTAL == ID && dataIn.Contains("/"))
+            else if (Field.DISC_NUMBER == ID && dataIn.Length > 1 && dataIn.StartsWith('0')) tagData.DiscDigitsForLeadingZeroes = dataIn.Length;
+            else if (Field.DISC_NUMBER_TOTAL == ID && dataIn.Contains('/'))
             {
                 string[] parts = dataIn.Split('/');
-                if (parts[0].Length > 1 && parts[0].StartsWith("0")) tagData.DiscDigitsForLeadingZeroes = parts[0].Length;
+                if (parts[0].Length > 1 && parts[0].StartsWith('0')) tagData.DiscDigitsForLeadingZeroes = parts[0].Length;
             }
 
             // Use the appropriate convention if needed
@@ -396,6 +382,15 @@ namespace ATL.AudioData.IO
             // Nothing here; the point is to override when needed
         }
 
+        /// <summary>
+        /// Overridable function called after writing the file
+        /// </summary>
+        /// <param name="s">Stream to the file</param>
+        protected virtual void postprocessWrite(Stream s)
+        {
+            // Nothing here; the point is to override when needed
+        }
+
         protected string formatBeforeWriting(Field frameType, TagData tag, IDictionary<Field, string> map)
         {
             string total;
@@ -407,10 +402,10 @@ namespace ATL.AudioData.IO
                 case Field.RECORDING_DATE:
                 case Field.PUBLISHING_DATE:
                     if (DateTime.TryParse(value, out dateTime)) return EncodeDate(dateTime);
-                    else return value;
+                    return value;
                 case Field.RECORDING_DATE_OR_YEAR:
                     if (value.Length > 4 && DateTime.TryParse(value, out dateTime)) return EncodeDate(dateTime);
-                    else return value;
+                    return value;
                 case Field.TRACK_NUMBER:
                     map.TryGetValue(Field.TRACK_TOTAL, out total);
                     return TrackUtils.FormatWithLeadingZeroes(value, Settings.OverrideExistingLeadingZeroesFormat, tag.TrackDigitsForLeadingZeroes, Settings.UseLeadingZeroes, total);
@@ -429,11 +424,11 @@ namespace ATL.AudioData.IO
             }
         }
 
-        public string FormatBeforeWriting(string value)
+        internal string FormatBeforeWriting(string value)
         {
-            if (Settings.AutoFormatAdditionalDates && value.StartsWith(MetaDataHolder.DATETIME_PREFIX, StringComparison.OrdinalIgnoreCase))
+            if (Settings.AutoFormatAdditionalDates && value.StartsWith(DATETIME_PREFIX, StringComparison.OrdinalIgnoreCase))
             {
-                return EncodeDate(DateTime.FromFileTime(long.Parse(value.Substring(MetaDataHolder.DATETIME_PREFIX.Length))));
+                return EncodeDate(DateTime.FromFileTime(long.Parse(value[DATETIME_PREFIX.Length..])));
             }
             return value;
         }
@@ -455,42 +450,23 @@ namespace ATL.AudioData.IO
         private FileSurgeon.WriteResult writeAdapter(Stream w, TagData tag, Zone zone)
         {
             int result = write(tag, w, zone.Name);
-            FileSurgeon.WriteMode writeMode = (result > -1) ? FileSurgeon.WriteMode.REPLACE : FileSurgeon.WriteMode.OVERWRITE;
+            FileSurgeon.WriteMode writeMode = result > -1 ? FileSurgeon.WriteMode.REPLACE : FileSurgeon.WriteMode.OVERWRITE;
             return new FileSurgeon.WriteResult(writeMode, result);
         }
 
         /// <inheritdoc/>
-        public bool Write(Stream s, TagData tag, Action<float> writeProgress = null)
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
+        public async Task<bool> WriteAsync(Stream s, TagData tag, ProgressToken<float> writeProgress = null)
         {
             TagData dataToWrite = prepareWrite(s, tag);
 
-            FileSurgeon surgeon = new FileSurgeon(structureHelper, embedder, getImplementedTagType(), getDefaultTagOffset(), writeProgress);
-            bool result = surgeon.RewriteZones(s, new FileSurgeon.WriteDelegate(writeAdapter), Zones, dataToWrite, tagExists);
+            FileSurgeon surgeon = new FileSurgeon(structureHelper, m_embedder, getImplementedTagType(), getDefaultTagOffset(), writeProgress);
+            bool result = await surgeon.RewriteZonesAsync(s, writeAdapter, Zones, dataToWrite, Exists);
 
             // Update tag information without calling Read
-            /* TODO - this implementation is too risky : 
-             *   - if one of the writing operations fails, data is updated as if everything went right
-             *   - any picture slot with a markForDeletion flag is recorded as-is in the tag
-             */
-            tagData = dataToWrite;
+            if (result) tagData.IntegrateValues(dataToWrite);
 
-            return result;
-        }
-
-        /// <inheritdoc/>
-        public async Task<bool> WriteAsync(Stream s, TagData tag, IProgress<float> writeProgress = null)
-        {
-            TagData dataToWrite = prepareWrite(s, tag);
-
-            FileSurgeon surgeon = new FileSurgeon(structureHelper, embedder, getImplementedTagType(), getDefaultTagOffset(), writeProgress);
-            bool result = await surgeon.RewriteZonesAsync(s, new FileSurgeon.WriteDelegate(writeAdapter), Zones, dataToWrite, tagExists);
-
-            // Update tag information without calling Read
-            /* TODO - this implementation is too risky : 
-             *   - if one of the writing operations fails, data is updated as if everything went right
-             *   - any picture slot with a markForDeletion flag is recorded as-is in the tag
-             */
-            tagData = dataToWrite;
+            postprocessWrite(s);
 
             return result;
         }
@@ -520,30 +496,31 @@ namespace ATL.AudioData.IO
             }
 
             // Read all the fields in the existing tag (including unsupported fields)
-            ReadTagParams readTagParams = new ReadTagParams(true, true);
-            readTagParams.PrepareForWriting = true;
-
-            if (embedder != null && embedder.HasEmbeddedID3v2 > 0)
+            ReadTagParams readTagParams = new ReadTagParams(true, true)
             {
-                readTagParams.Offset = embedder.HasEmbeddedID3v2;
+                PrepareForWriting = true
+            };
+
+            if (m_embedder != null && m_embedder.HasEmbeddedID3v2 > 0)
+            {
+                readTagParams.Offset = m_embedder.HasEmbeddedID3v2;
             }
 
             read(r, readTagParams);
 
-            if (embedder != null && getImplementedTagType() == MetaDataIOFactory.TagType.ID3V2)
+            if (m_embedder != null && getImplementedTagType() == MetaDataIOFactory.TagType.ID3V2)
             {
                 structureHelper.Clear();
-                structureHelper.AddZone(embedder.Id3v2Zone);
+                structureHelper.AddZone(m_embedder.Id3v2Zone);
             }
 
             // Give engine something to work with if the tag is really empty
-            if (!tagExists && 0 == Zones.Count)
+            if (!Exists && 0 == Zones.Count)
             {
                 structureHelper.AddZone(0, 0);
             }
 
-            TagData dataToWrite;
-            dataToWrite = tagData;
+            var dataToWrite = new TagData(tagData);
             dataToWrite.IntegrateValues(tag); // Merge existing information + new tag information
             dataToWrite.Cleanup();
 
@@ -552,83 +529,56 @@ namespace ATL.AudioData.IO
         }
 
         /// <inheritdoc/>
-        public virtual bool Remove(Stream s)
-        {
-            handleEmbedder();
-
-            bool result = true;
-            long cumulativeDelta = 0;
-            foreach (Zone zone in Zones)
-            {
-                if (zone.Offset > -1 && !zone.Name.Equals(PADDING_ZONE_NAME))
-                {
-                    if (zone.IsDeletable)
-                    {
-                        LogDelegator.GetLogDelegate()(Log.LV_DEBUG, "Deleting " + zone.Name + " (deletable) @ " + zone.Offset + " [" + zone.Size + "]");
-
-                        if (zone.Size > zone.CoreSignature.Length) StreamUtils.ShortenStream(s, zone.Offset + zone.Size - cumulativeDelta, (uint)(zone.Size - zone.CoreSignature.Length));
-
-                        if (zone.CoreSignature.Length > 0)
-                        {
-                            s.Position = zone.Offset - cumulativeDelta;
-                            StreamUtils.WriteBytes(s, zone.CoreSignature);
-                        }
-                    }
-
-                    result = result && rewriteHeaders(s, zone);
-
-                    if (zone.IsDeletable) cumulativeDelta += zone.Size - zone.CoreSignature.Length;
-                }
-            }
-
-            return result;
-        }
-
-        /// <inheritdoc/>
+        [Zomp.SyncMethodGenerator.CreateSyncVersion]
         public virtual async Task<bool> RemoveAsync(Stream s)
         {
             handleEmbedder();
 
             bool result = true;
             long cumulativeDelta = 0;
-            foreach (Zone zone in Zones)
+            foreach (var zone in Zones)
             {
-                if (zone.Offset > -1 && !zone.Name.Equals(PADDING_ZONE_NAME))
+                if (zone.Offset > -1 && !zone.Name.Equals(FileStructureHelper.PADDING_ZONE_NAME))
                 {
                     if (zone.IsDeletable)
                     {
                         LogDelegator.GetLogDelegate()(Log.LV_DEBUG, "Deleting " + zone.Name + " (deletable) @ " + zone.Offset + " [" + zone.Size + "]");
 
-                        if (zone.Size > zone.CoreSignature.Length) await StreamUtilsAsync.ShortenStreamAsync(s, zone.Offset + zone.Size - cumulativeDelta, (uint)(zone.Size - zone.CoreSignature.Length));
+                        if (zone.Size > zone.CoreSignature.Length) await StreamUtils.ShortenStreamAsync(s, zone.Offset + zone.Size - cumulativeDelta, (uint)(zone.Size - zone.CoreSignature.Length));
 
                         if (zone.CoreSignature.Length > 0)
                         {
                             s.Position = zone.Offset - cumulativeDelta;
-                            await StreamUtilsAsync.WriteBytesAsync(s, zone.CoreSignature);
+                            await StreamUtils.WriteBytesAsync(s, zone.CoreSignature);
                         }
                     }
 
                     result = result && rewriteHeaders(s, zone);
 
-                    if (zone.IsDeletable) cumulativeDelta += zone.Size - zone.CoreSignature.Length;
+                    if (zone.IsDeletable)
+                    {
+                        cumulativeDelta += zone.Size - zone.CoreSignature.Length;
+                        zone.IsDeleted = true;
+                    }
                 }
             }
+            postprocessWrite(s);
 
             return result;
         }
 
         private void handleEmbedder()
         {
-            if (embedder != null && getImplementedTagType() == MetaDataIOFactory.TagType.ID3V2)
+            if (m_embedder != null && getImplementedTagType() == MetaDataIOFactory.TagType.ID3V2)
             {
                 structureHelper.Clear();
-                structureHelper.AddZone(embedder.Id3v2Zone);
+                structureHelper.AddZone(m_embedder.Id3v2Zone);
             }
         }
 
         private bool rewriteHeaders(Stream s, Zone zone)
         {
-            if (MetaDataIOFactory.TagType.NATIVE == getImplementedTagType() || (embedder != null && getImplementedTagType() == MetaDataIOFactory.TagType.ID3V2))
+            if (MetaDataIOFactory.TagType.NATIVE == getImplementedTagType() || (m_embedder != null && getImplementedTagType() == MetaDataIOFactory.TagType.ID3V2))
             {
                 if (zone.IsDeletable)
                     return structureHelper.RewriteHeaders(s, null, -zone.Size + zone.CoreSignature.Length, ACTION.Delete, zone.Name);
@@ -636,6 +586,31 @@ namespace ATL.AudioData.IO
                     return structureHelper.RewriteHeaders(s, null, 0, ACTION.Edit, zone.Name);
             }
             return true;
+        }
+
+        /// <summary>
+        /// Indicate whether the given field can be written to the current file, according to their properties
+        /// </summary>
+        /// <param name="fieldInfo">Field to test</param>
+        /// <returns>True if the given field can be written; false if not</returns>
+        protected bool isMetaFieldWritable(MetaFieldInfo fieldInfo)
+        {
+            return (fieldInfo.TagType.Equals(MetaDataIOFactory.TagType.ANY) ||
+                    fieldInfo.TagType.Equals(getImplementedTagType())) && !fieldInfo.MarkedForDeletion;
+        }
+
+        /// <summary>
+        /// Indicate whether the given picture can be written to the current file, according to their properties
+        /// </summary>
+        /// <param name="picInfo">Picture to test</param>
+        /// <returns>True if the given picture can be written; false if not</returns>
+        protected bool isPictureWritable(PictureInfo picInfo)
+        {
+            // Picture has either to be supported, or to come from the right tag standard
+            var result = !picInfo.PicType.Equals(PictureInfo.PIC_TYPE.Unsupported);
+            if (!result) result = getImplementedTagType() == picInfo.TagType;
+            // It also has not to be marked for deletion
+            return result && !picInfo.MarkedForDeletion;
         }
     }
 }

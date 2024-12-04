@@ -88,12 +88,11 @@ namespace ATL
         /// Tag editing preferences : what tagging systems to use when audio file has no metadata ?
         /// NB1 : If more than one item, _all_ of them will be written
         /// NB2 : If Native tagging is not indicated here, it will _not_ be used
+        /// NB3 : "Recommended" will choose the most compatible metadata formats according to the target audio format
         /// 
-        /// Default : ID3v2 then Native tagging
+        /// Default : Recommended
         /// </summary>
-        public static MetaDataIOFactory.TagType[] DefaultTagsWhenNoMetadata = new MetaDataIOFactory.TagType[2] {
-            MetaDataIOFactory.TagType.ID3V2, MetaDataIOFactory.TagType.NATIVE
-        };
+        public static MetaDataIOFactory.TagType[] DefaultTagsWhenNoMetadata = { MetaDataIOFactory.TagType.RECOMMENDED };
 
         /// <summary>
         /// If true, file name (without the extension) will go to the Title field if metadata contains no title
@@ -107,6 +106,14 @@ namespace ATL
         /// Default : true
         /// </summary>
         public static bool AutoFormatAdditionalDates = true;
+
+        /// <summary>
+        /// Determines the way ATL writes file paths in playlists
+        /// If true, use absolute file paths
+        /// If false, use relative file paths when track files are under the same folder as the playlist file
+        /// Default : false
+        /// </summary>
+        public static bool PlaylistWriteAbsolutePath = false;
 
 
         //
@@ -170,6 +177,19 @@ namespace ATL
         public static bool ID3v2_forceUnsynchronization = false;
 
         /// <summary>
+        /// ID3v2 : Set to false not to write the data length indicator (flag p, as per ID3v2.4 specs) on picture frames
+        /// Disabling this might help showing covers on certain softwares (e.g. Spotify)
+        /// Default : true
+        /// </summary>
+        public static bool ID3v2_writePictureDataLengthIndicator = true;
+
+        /// <summary>
+        /// ID3v2.2, ID3v2.3 : Set to false to keep raw data in fields that have multiple values (e.g. TP1, TCM, TCOM...)
+        /// Default : true
+        /// </summary>
+        public static bool ID3v2_separatev2v3Values = true;
+
+        /// <summary>
         /// MP4 : Set to true to always create chapters in Nero format (chpl)
         /// Default : true
         /// </summary>
@@ -196,17 +216,15 @@ namespace ATL
 
         /// <summary>
         /// MP4 : Set to read chapters :
-        ///   - 0 : From any available format
-        ///   - 1 : Only from Quicktime format (chap)
-        ///   - 2 : Only from Nero format (chpl)
-        ///   
-        /// When choosing 0, if ATL detects that one of the formats features more chapter entries than the other,
-        /// it will keep all the entries of the largest list
+        ///   - 0 : From Quicktime format (chap), except if Nero chapters have more entries
+        ///   - 1 : From Quicktime format only
+        ///   - 2 : From Nero format (chpl), except if Quicktime chapters have more entries
+        ///   - 3 : From Nero format only
         /// 
-        /// Warning : Using a value > 0 while updating files may delete the tag you've not chosen to read
+        /// Warning : Using 1 or 3 while updating files may delete the tag you've not chosen to read
         /// Default : 0
         /// </summary>
-        public static int MP4_readChaptersExclusive = 0;
+        public static int MP4_readChaptersFormat = 0;
 
         /// <summary>
         /// ASF/WMA : Keep non-"WM" fields when removing the tag
@@ -220,6 +238,12 @@ namespace ATL
         /// Default : 0
         /// </summary>
         public static int GYM_VGM_playbackRate = 0;
+
+        /// <summary>
+        /// MP3 : Set to true to calculate the exact duration of the track (parsing the file will be longer)
+        /// Default : false (fast parsing)
+        /// </summary>
+        public static bool MP3_parseExactDuration = false;
 
         /// <summary>
         /// M3U : Use extended format to write the playlist
